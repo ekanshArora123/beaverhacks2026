@@ -1,29 +1,36 @@
 import os
-import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from google import genai
-from google.genai import types
 
 try:
-	from keys import GEMINI_KEY
+	from .keys import GEMINI_KEY
 except ImportError:
-	GEMINI_KEY = None
+	try:
+		from keys import GEMINI_KEY
+	except ImportError:
+		GEMINI_KEY = None
 
+try:
+	from .config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+except ImportError:
+	from config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
-DEFAULT_MODEL = "gemini-2.0-flash"
-SUPPORTED_SUFFIXES = {
-	".jpg",
-	".jpeg",
-	".png",
-	".webp",
-	".gif",
-	".mp4",
-	".mov",
-	".avi",
-	".mkv",
-	".webm",
-}
+try:
+	from .mainPrompt import MainPromptMixin
+except ImportError:
+ 	from mainPrompt import MainPromptMixin
+
+try:
+	from .stateUpdate import StateUpdateMixin, TASK_STATES_DIR
+except ImportError:
+	from stateUpdate import StateUpdateMixin, TASK_STATES_DIR
+
+try:
+	from .tts import TTSMixin
+except ImportError:
+	from tts import TTSMixin
 
 
 def load_api_key() -> str:
@@ -35,77 +42,39 @@ def load_api_key() -> str:
 	return api_key
 
 
-def create_client() -> genai.Client:
-	return genai.Client(api_key=load_api_key())
+@dataclass
+class GeminiSequenceBackend(MainPromptMixin, StateUpdateMixin, TTSMixin):
+	text_model: str = TEXT_MODEL
+	vision_model: str = VISION_MODEL
+	voice_model: str = VOICE_MODEL
+	voice_name: str = DEFAULT_VOICE_NAME
+	output_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "generated_audio")
+	task_states_dir: Path = field(default_factory=lambda: TASK_STATES_DIR)
+	client: genai.Client | None = field(default=None, init=False, repr=False)
+	image_paths: list[Path] = field(default_factory=list, init=False)
+	task_image_paths: list[Path] = field(default_factory=list, init=False)
+	prompt_number: int | None = field(default=None, init=False)
+	prompt_text: str = field(default="", init=False)
+	text_source_1: str = field(default="", init=False)
+	text_source_2: str = field(default="", init=False)
+	task_name: str | None = field(default=None, init=False)
+	task_status: str = field(default="", init=False)
+	selected_model: str = field(default="", init=False)
 
-
-def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.File:
-	current_file = uploaded_file
-	while getattr(current_file, "state", None) == types.FileState.PROCESSING:
-		print("Waiting for Gemini to finish processing the file...")
-		time.sleep(2)
-		current_file = client.files.get(name=uploaded_file.name)
-
-	if getattr(current_file, "state", None) == types.FileState.FAILED:
-		raise RuntimeError(f"Gemini failed to process {current_file.display_name or uploaded_file.name}.")
-
-	return current_file
-
-
-def send_media_prompt(
-	client: genai.Client,
-	media_path: Path,
-	prompt: str,
-	model: str = DEFAULT_MODEL,
-) -> str:
-	uploaded_file = client.files.upload(file=media_path)
-	ready_file = wait_for_upload(client, uploaded_file)
-
-	response = client.models.generate_content(
-		model=model,
-		contents=[ready_file, prompt],
-	)
-	return response.text or "No text response returned."
-
-
-def prompt_for_media_path() -> Path | None:
-	raw_value = input("Image or video path (or 'q' to quit): ").strip().strip('"')
-	if raw_value.lower() in {"q", "quit", "exit"}:
-		return None
-
-	media_path = Path(raw_value)
-	if not media_path.exists() or not media_path.is_file():
-		print("File not found. Try again.")
-		return prompt_for_media_path()
-
-	if media_path.suffix.lower() not in SUPPORTED_SUFFIXES:
-		print("Unsupported file type. Use a common image or video file.")
-		return prompt_for_media_path()
-
-	return media_path
+	def get_client(self) -> genai.Client:
+		if self.client is None:
+			self.client = genai.Client(api_key=load_api_key())
+		return self.client
 
 
 def main() -> None:
-	client = create_client()
-	print("Gemini backend ready. Submit an image or video path, or enter q to exit.")
-
-	while True:
-		media_path = prompt_for_media_path()
-		if media_path is None:
-			print("Exiting backend loop.")
-			return
-
-		prompt = input("Prompt for Gemini: ").strip()
-		if not prompt:
-			prompt = "Describe this media."
-
-		try:
-			result = send_media_prompt(client, media_path, prompt)
-			print("\nGemini response:\n")
-			print(result)
-			print()
-		except Exception as error:
-			print(f"Request failed: {error}")
+	print("GeminiSequenceBackend ready.")
+	print("Example call 1:")
+	print(
+		"backend.generate(['image1.png'], prompt_number=1, text_source_1='source a', text_source_2='source b', task_name='task1', mode='text')"
+	)
+	print("Example call 2:")
+	print("backend.generate_for_task(task_name='task1', prompt_number=2, mode='text')")
 
 
 if __name__ == "__main__":

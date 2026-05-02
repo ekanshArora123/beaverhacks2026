@@ -20,7 +20,7 @@ app = Flask(__name__)
 CORS(app)
 
 ANALYZE_MODEL = "gemini-2.0-flash"
-GENERATE_MODEL = "gemini-2.0-flash-preview-image-generation"
+GENERATE_MODEL = "gemini-3-pro-image-preview"
 
 SUPPORTED_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif",
