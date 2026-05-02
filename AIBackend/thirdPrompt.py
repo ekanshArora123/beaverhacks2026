@@ -1,3 +1,7 @@
+""" 
+Outputs audio from text instruction 
+"""
+
 """Voice-mode helpers for Gemini text-to-speech output."""
 
 import mimetypes

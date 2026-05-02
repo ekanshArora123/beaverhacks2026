@@ -23,9 +23,9 @@ except ImportError:
  	from mainPrompt import MainPromptMixin
 
 try:
-	from .stateUpdate import StateUpdateMixin, TASK_STATES_DIR
+	from .fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
 except ImportError:
-	from stateUpdate import StateUpdateMixin, TASK_STATES_DIR
+	from AIBackend.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
 
 try:
 	from .tts import TTSMixin
