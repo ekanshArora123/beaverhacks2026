@@ -1,7 +1,7 @@
 """Main multimodal generation flow.
 
-Takes schematic image, user image, context text, and input text (from voice) for the primary Gemini call.
-Output the daigram into 
+Prompt 1 takes the schematic image, user image, context text, and input text for
+the primary Gemini call.
 """
 
 import time
@@ -12,9 +12,9 @@ from google import genai
 from google.genai import types
 
 try:
-	from ... import prompt as prompt_module
+	from . import prompt as prompt_module
 except ImportError:
-	import AIBackend.promptScripts.prompt as prompt_module
+	import promptScripts.prompt as prompt_module
 
 
 SUPPORTED_IMAGE_SUFFIXES = {
@@ -40,6 +40,31 @@ def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.Fi
 
 
 class MainPromptMixin:
+	def run_first_prompt(
+		self,
+		image_paths: Sequence[str | Path],
+		text_source_1: str = "",
+		text_source_2: str = "",
+		task_name: str | int | None = None,
+		mode: ResponseMode = "text",
+		prompt_text: str | None = None,
+		text_model: str | None = None,
+		vision_model: str | None = None,
+		voice_model: str | None = None,
+	) -> dict[str, str | int | list[str] | None]:
+		return self.generate(
+			image_paths=image_paths,
+			prompt_number=1,
+			text_source_1=text_source_1,
+			text_source_2=text_source_2,
+			mode=mode,
+			prompt_text=prompt_text,
+			task_name=task_name,
+			text_model=text_model,
+			vision_model=vision_model,
+			voice_model=voice_model,
+		)
+
 	def get_prompt(self, prompt_number: int) -> str:
 		prompt_name = f"PROMPT{prompt_number}"
 		prompt_value = getattr(prompt_module, prompt_name, None)

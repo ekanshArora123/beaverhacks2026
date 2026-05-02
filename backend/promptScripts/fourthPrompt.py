@@ -1,12 +1,13 @@
-"""
-Takes ALL prev context + user update, updates state text file for task
+"""Fourth prompt helpers.
+
+Prompt 4 takes all previous context plus a user update and persists task state.
 """
 
 import importlib.util
 from pathlib import Path
 
 
-TASK_STATES_DIR = Path(__file__).resolve().parent.parent / "taskStates"
+TASK_STATES_DIR = Path(__file__).resolve().parent.parent.parent / "taskStates"
 TASK_IMAGE_SUFFIXES = {
 	".jpg",
 	".jpeg",
@@ -20,6 +21,18 @@ class StateUpdateMixin:
 	def update_text_source_1(self, new_text_source_1: str) -> dict[str, str | int | list[str] | None]:
 		self.text_source_1 = new_text_source_1.strip()
 		return self.get_state()
+
+	def run_fourth_prompt(self, task_name: str | int, updated_status: str) -> dict[str, str | int | list[str] | None]:
+		normalized_task_name = self._normalize_task_name(task_name)
+		if normalized_task_name is None:
+			raise ValueError("task_name is required for the fourth prompt.")
+
+		status_path = self._write_task_status(normalized_task_name, updated_status)
+		self.task_name = normalized_task_name
+		self.task_status = updated_status.strip()
+		result = self.get_state()
+		result["status_file"] = str(status_path)
+		return result
 
 	def get_state(self) -> dict[str, str | int | list[str] | None]:
 		return {
@@ -74,3 +87,10 @@ class StateUpdateMixin:
 		return sorted(
 			path for path in task_dir.iterdir() if path.is_file() and path.suffix.lower() in TASK_IMAGE_SUFFIXES
 		)
+
+	def _write_task_status(self, task_name: str, updated_status: str) -> Path:
+		task_dir = self.task_states_dir / task_name
+		task_dir.mkdir(parents=True, exist_ok=True)
+		status_path = task_dir / "text1.py"
+		status_path.write_text(f"STATUS = {updated_status.strip()!r}\n", encoding="utf-8")
+		return status_path
