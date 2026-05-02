@@ -1,0 +1,10 @@
+vector database? PostGres
+
+
+demo: 
+
+    User: Shoot, my 3d printer broke!
+
+    Assistant: Hey User, what seems to be having issues? 
+
+    User: The print failed, and theres 
