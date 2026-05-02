@@ -1,5 +1,5 @@
 """
-Takes context and user update
+Takes ALL prev context + user update, updates state text file for task
 """
 
 import importlib.util
