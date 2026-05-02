@@ -1,9 +1,10 @@
 """Fourth prompt helpers.
 
-Prompt 4 takes all previous context plus a user update and persists task state.
+Prompt 4 takes all previous context plus a user update and persists the current
+task state as plain text.
 """
 
-import importlib.util
+import ast
 from pathlib import Path
 
 
@@ -64,20 +65,22 @@ class StateUpdateMixin:
 		return normalized_name
 
 	def _load_task_status(self, task_name: str) -> str:
-		status_path = self.task_states_dir / task_name / "text1.py"
+		status_path = self.task_states_dir / task_name / "text1.txt"
 		if not status_path.exists():
 			return ""
 
-		spec = importlib.util.spec_from_file_location(f"{task_name}_status_module", status_path)
-		if spec is None or spec.loader is None:
-			raise RuntimeError(f"Could not load task status from {status_path}.")
+		raw_status = status_path.read_text(encoding="utf-8").strip()
+		if not raw_status:
+			return ""
 
-		status_module = importlib.util.module_from_spec(spec)
-		spec.loader.exec_module(status_module)
-		status_value = getattr(status_module, "STATUS", "")
-		if not isinstance(status_value, str):
-			raise ValueError(f"STATUS in {status_path} must be a string.")
-		return status_value.strip()
+		if raw_status.startswith("STATUS"):
+			_, _, status_value = raw_status.partition("=")
+			parsed_status = ast.literal_eval(status_value.strip())
+			if not isinstance(parsed_status, str):
+				raise ValueError(f"STATUS in {status_path} must be a string.")
+			return parsed_status.strip()
+
+		return raw_status
 
 	def _load_task_image_paths(self, task_name: str) -> list[Path]:
 		task_dir = self.task_states_dir / task_name
@@ -91,6 +94,6 @@ class StateUpdateMixin:
 	def _write_task_status(self, task_name: str, updated_status: str) -> Path:
 		task_dir = self.task_states_dir / task_name
 		task_dir.mkdir(parents=True, exist_ok=True)
-		status_path = task_dir / "text1.py"
-		status_path.write_text(f"STATUS = {updated_status.strip()!r}\n", encoding="utf-8")
+		status_path = task_dir / "text1.txt"
+		status_path.write_text(f"{updated_status.strip()}\n", encoding="utf-8")
 		return status_path

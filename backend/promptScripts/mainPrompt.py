@@ -1,7 +1,7 @@
 """Main multimodal generation flow.
 
-Prompt 1 takes the schematic image, user image, context text, and input text for
-the primary Gemini call.
+Prompt 1 takes the schematic image, user image, diagram image, context text, and input text
+for the the second Gemini call.
 """
 
 import time
