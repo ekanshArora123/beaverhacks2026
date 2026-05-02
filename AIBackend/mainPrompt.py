@@ -1,6 +1,7 @@
 """Main multimodal generation flow.
 
 Takes schematic, image, context text, and input text for the primary Gemini call.
+Output the daigram, 
 """
 
 import time

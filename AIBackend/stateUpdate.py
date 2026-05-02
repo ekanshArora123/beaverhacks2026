@@ -1,4 +1,6 @@
-"""Task state helpers for backend task folders."""
+"""
+Takes context and user update
+"""
 
 import importlib.util
 from pathlib import Path
