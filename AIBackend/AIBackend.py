@@ -5,7 +5,7 @@ from pathlib import Path
 from google import genai
 
 try:
-	from .keys import GEMINI_KEY
+	from ..keys import GEMINI_KEY
 except ImportError:
 	try:
 		from keys import GEMINI_KEY
@@ -18,14 +18,14 @@ except ImportError:
 	from config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
-	from .mainPrompt import MainPromptMixin
+	from .promptScripts.mainPrompt import MainPromptMixin
 except ImportError:
- 	from mainPrompt import MainPromptMixin
+ 	from AIBackend.promptScripts.mainPrompt import MainPromptMixin
 
 try:
-	from .fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from .promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
 except ImportError:
-	from AIBackend.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from AIBackend.promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
 
 try:
 	from .tts import TTSMixin

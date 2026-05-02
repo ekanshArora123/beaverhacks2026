@@ -1,7 +1,7 @@
 """Main multimodal generation flow.
 
 Takes schematic image, user image, context text, and input text (from voice) for the primary Gemini call.
-Output the daigram
+Output the daigram into 
 """
 
 import time
@@ -12,9 +12,9 @@ from google import genai
 from google.genai import types
 
 try:
-	from . import prompt as prompt_module
+	from ... import prompt as prompt_module
 except ImportError:
-	import prompt as prompt_module
+	import AIBackend.promptScripts.prompt as prompt_module
 
 
 SUPPORTED_IMAGE_SUFFIXES = {
