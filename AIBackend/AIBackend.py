@@ -10,19 +10,20 @@ try:
 except ImportError:
 	GEMINI_KEY = None
 
+try:
+	from prompt import PROMPT1
+except ImportError:
+	PROMPT1 = "Describe this image."
+
 
 DEFAULT_MODEL = "gemini-2.0-flash"
-SUPPORTED_SUFFIXES = {
+DEFAULT_PROMPT = PROMPT1
+SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
 	".jpeg",
 	".png",
 	".webp",
 	".gif",
-	".mp4",
-	".mov",
-	".avi",
-	".mkv",
-	".webm",
 }
 
 
@@ -52,55 +53,60 @@ def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.Fi
 	return current_file
 
 
-def send_media_prompt(
+def send_image_prompt(
 	client: genai.Client,
-	media_path: Path,
+	image_path: Path,
 	prompt: str,
 	model: str = DEFAULT_MODEL,
 ) -> str:
-	uploaded_file = client.files.upload(file=media_path)
+	if image_path.suffix.lower() not in SUPPORTED_IMAGE_SUFFIXES:
+		raise ValueError("Unsupported image type. Use jpg, jpeg, png, webp, or gif.")
+
+	uploaded_file = client.files.upload(file=image_path)
 	ready_file = wait_for_upload(client, uploaded_file)
 
 	response = client.models.generate_content(
 		model=model,
-		contents=[ready_file, prompt],
+		contents=[prompt, ready_file],
 	)
 	return response.text or "No text response returned."
 
 
-def prompt_for_media_path() -> Path | None:
-	raw_value = input("Image or video path (or 'q' to quit): ").strip().strip('"')
-	if raw_value.lower() in {"q", "quit", "exit"}:
-		return None
+def prompt_for_image_path() -> Path | None:
+	while True:
+		raw_value = input("Image path (or 'q' to quit): ").strip().strip('"')
+		if raw_value.lower() in {"q", "quit", "exit"}:
+			return None
 
-	media_path = Path(raw_value)
-	if not media_path.exists() or not media_path.is_file():
-		print("File not found. Try again.")
-		return prompt_for_media_path()
+		image_path = Path(raw_value)
+		if not image_path.exists() or not image_path.is_file():
+			print("File not found. Try again.")
+			continue
 
-	if media_path.suffix.lower() not in SUPPORTED_SUFFIXES:
-		print("Unsupported file type. Use a common image or video file.")
-		return prompt_for_media_path()
+		if image_path.suffix.lower() not in SUPPORTED_IMAGE_SUFFIXES:
+			print("Unsupported image type. Use jpg, jpeg, png, webp, or gif.")
+			continue
 
-	return media_path
+		return image_path
 
 
 def main() -> None:
 	client = create_client()
-	print("Gemini backend ready. Submit an image or video path, or enter q to exit.")
+	print("Gemini backend ready. Submit an image path, or enter q to exit.")
+	print(f"Default prompt: {DEFAULT_PROMPT}")
 
 	while True:
-		media_path = prompt_for_media_path()
-		if media_path is None:
+		image_path = prompt_for_image_path()
+		if image_path is None:
 			print("Exiting backend loop.")
 			return
 
-		prompt = input("Prompt for Gemini: ").strip()
+		prompt = input("Prompt for Gemini (press Enter to use default): ").strip()
 		if not prompt:
-			prompt = "Describe this media."
+			prompt = DEFAULT_PROMPT
 
 		try:
-			result = send_media_prompt(client, media_path, prompt)
+			result = send_image_prompt(client, image_path, prompt)
 			print("\nGemini response:\n")
 			print(result)
 			print()

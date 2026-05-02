@@ -1,0 +1,1 @@
+PROMPT1 = "label the daigram with labels and arrows"
