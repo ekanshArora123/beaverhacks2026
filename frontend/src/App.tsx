@@ -89,6 +89,7 @@ function App() {
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream
+          videoRef.current.muted = true // Prevent audio feedback from microphone
         }
 
         const recorderFormat = resolveRecorderFormat()
@@ -142,7 +143,7 @@ function App() {
           }
 
           // VOLUME THRESHOLD: Volume ranges from 0 to 255.
-          const THRESHOLD = 20
+          const THRESHOLD = 30
 
           if (maxVolume > THRESHOLD) {
             // User is speaking
@@ -298,11 +299,16 @@ function App() {
       if (audioChunksRef.current.length > 0 && recorderFormatRef.current) {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderFormatRef.current.mimeType })
         formData.append('audio', audioBlob, `recording.${recorderFormatRef.current.extension}`)
-        console.log('Sending audio:', {
-          size: audioBlob.size,
-          type: audioBlob.type,
-          chunks: audioChunksRef.current.length
-        })
+        
+        // Calculate approximate duration (assuming ~128kbps bitrate for webm/ogg)
+        const approximateDurationSeconds = (audioBlob.size * 8) / (128 * 1024)
+        
+        console.log('=== AUDIO CLIP INFO ===')
+        console.log('Full audio clip size:', audioBlob.size, 'bytes', `(${(audioBlob.size / 1024).toFixed(2)} KB)`)
+        console.log('Audio format:', audioBlob.type)
+        console.log('Number of chunks:', audioChunksRef.current.length)
+        console.log('Approximate duration:', approximateDurationSeconds.toFixed(2), 'seconds')
+        console.log('=======================')
       }
       
       // Call backend
