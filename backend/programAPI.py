@@ -230,6 +230,21 @@ def _collect_image_paths(payload: dict[str, object], temp_dir: Path) -> list[Pat
     return [*resolved_paths, *uploaded_paths]
 
 
+def _split_image_sources(image_paths: list[Path], temp_dir: Path) -> tuple[list[Path], list[Path]]:
+    temp_root = temp_dir.resolve()
+    schematic_paths: list[Path] = []
+    user_uploaded_paths: list[Path] = []
+
+    for image_path in image_paths:
+        resolved_path = image_path.resolve()
+        if resolved_path.is_relative_to(temp_root):
+            user_uploaded_paths.append(resolved_path)
+        else:
+            schematic_paths.append(resolved_path)
+
+    return schematic_paths, user_uploaded_paths
+
+
 def _attach_binary_payload(value: object) -> object:
     if isinstance(value, dict):
         serialized = {key: _attach_binary_payload(nested_value) for key, nested_value in value.items()}
@@ -311,7 +326,7 @@ def health():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    """Frontend-compatible analysis endpoint backed by prompt 1."""
+    """Frontend-compatible analysis endpoint backed by prompts 1 and 2."""
     payload = _get_json_payload()
 
     text_source_1 = _optional_str(_read_request_value(payload, "text_source_1"))
@@ -323,15 +338,21 @@ def analyze():
     mode = _optional_str(_read_request_value(payload, "mode")) or "text"
     prompt_text = _optional_str(_read_request_value(payload, "prompt_text"))
     task_name = _read_request_value(payload, "task_name")
+    diagram_source = (_optional_str(_read_request_value(payload, "diagram_source")) or "user").strip()
 
     try:
         model_overrides = _read_prompt_model_overrides(payload)
         with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
             backend = create_sequence_backend()
             _apply_prompt_backend_overrides(backend, model_overrides)
             text_source_2 = _read_text_source_2(payload, backend)
-            result = backend.run_first_prompt(
-                image_paths=_collect_image_paths(payload, Path(temp_dir)),
+
+            all_image_paths = _collect_image_paths(payload, temp_path)
+            schematic_image_paths, user_uploaded_paths = _split_image_sources(all_image_paths, temp_path)
+
+            first_result = backend.run_first_prompt(
+                image_paths=all_image_paths,
                 text_source_1=text_source_1,
                 text_source_2=text_source_2,
                 task_name=task_name,
@@ -342,12 +363,53 @@ def analyze():
                 voice_model=model_overrides["voice_model"],
             )
 
-        serialized = _attach_binary_payload(result)
-        if isinstance(serialized, dict):
-            serialized["text"] = serialized.get("response_text") or ""
-            serialized["model"] = serialized.get("selected_model") or serialized.get("text_model")
-            serialized["user_input_text"] = text_source_2
-        return jsonify(serialized)
+            normalized_diagram_source = diagram_source.strip().lower()
+            if normalized_diagram_source in {"schematic", "schematics", "diagram"}:
+                diagram_image_paths = schematic_image_paths or all_image_paths
+            elif normalized_diagram_source in {"all", "auto", "mixed"}:
+                diagram_image_paths = all_image_paths
+            else:
+                diagram_image_paths = user_uploaded_paths or all_image_paths
+
+            second_result = backend.run_second_prompt(
+                first_prompt_response=str(first_result.get("response_text") or ""),
+                task_name=task_name,
+                text_source_1=text_source_1,
+                text_source_2=text_source_2,
+                image_paths=diagram_image_paths,
+                mode="text",
+                prompt_text=None,
+                text_model=model_overrides["text_model"],
+                vision_model=model_overrides["vision_model"],
+                voice_model=model_overrides["voice_model"],
+                diagram_source=diagram_source,
+            )
+
+        serialized_first = _attach_binary_payload(first_result)
+        serialized_second = _attach_binary_payload(second_result)
+
+        response_body: dict[str, object] = {}
+        if isinstance(serialized_second, dict):
+            response_body.update(serialized_second)
+
+        if isinstance(serialized_first, dict):
+            response_body["first_prompt_response_text"] = serialized_first.get("response_text") or ""
+            response_body["first_prompt_selected_model"] = serialized_first.get("selected_model")
+
+        response_body["text"] = str(response_body.get("response_text") or "")
+        response_body["model"] = (
+            response_body.get("selected_model")
+            or response_body.get("vision_model")
+            or response_body.get("text_model")
+        )
+        response_body["user_input_text"] = text_source_2
+
+        diagram_image_base64 = response_body.get("diagram_image_base64")
+        if isinstance(diagram_image_base64, str) and diagram_image_base64:
+            response_body["image"] = diagram_image_base64
+            response_body["image_mime"] = response_body.get("diagram_mime_type") or "image/png"
+
+        return jsonify(response_body)
     except Exception as exc:
         return _json_error_response(exc)
 
@@ -444,6 +506,7 @@ def run_prompt_two():
                 text_model=model_overrides["text_model"],
                 vision_model=model_overrides["vision_model"],
                 voice_model=model_overrides["voice_model"],
+                diagram_source=_optional_str(_read_request_value(payload, "diagram_source")),
             )
 
         serialized = _attach_binary_payload(result)
