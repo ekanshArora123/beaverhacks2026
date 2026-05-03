@@ -1,0 +1,8 @@
+
+
+TODO: 
+    Need to playback audio
+    Console log audio clip length from frontend
+    Do the same in backend 
+    backend transcribe audio to text
+    
