@@ -31,6 +31,7 @@ interface PhonePayloadInputs {
   audioMime: string | null
   audioExtension: string | null
   text: string | null
+  toolContext: string | null
 }
 
 type DiagramSource = 'user' | 'schematic'
@@ -384,6 +385,10 @@ function App() {
         formData.append('text_source_1', rollingLoopContext)
       }
 
+      if (isPhonePayload && phoneInputs?.toolContext) {
+        formData.append('tool_context', phoneInputs.toolContext)
+      }
+
       if (wantsAudio && audioBlob) {
         formData.append('audio', audioBlob, `recording.${audioExtension}`)
 
@@ -500,6 +505,7 @@ function App() {
         audioMime: payload.audio_mime,
         audioExtension: payload.audio_extension,
         text: payload.text_source_2,
+        toolContext: payload.tool_context ?? null,
       }
 
       try {

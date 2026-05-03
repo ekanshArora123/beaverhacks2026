@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { postSessionInput } from './api/session'
+import { postSessionInput, primeToolContext } from './api/session'
 import { useCaptureSession } from './hooks/useCaptureSession'
 import './MobileCapturePage.css'
 
@@ -29,6 +29,9 @@ function readToolFromQuery(): string {
 function MobileCapturePage() {
   const [code, setCode] = useState<string>(readCodeFromQuery())
   const [toolContext] = useState<string>(readToolFromQuery())
+  const greeting = toolContext
+    ? `How can I help you with ${toolContext.replace(/_/g, ' ')} today?`
+    : ''
   const [codeInput, setCodeInput] = useState<string>('')
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle')
   const [statusMessage, setStatusMessage] = useState<string>('')
@@ -39,6 +42,22 @@ function MobileCapturePage() {
     facingMode: 'environment',
     enabled: code.length > 0,
   })
+
+  // Prime Gemini's KV cache as soon as the tool QR is opened
+  useEffect(() => {
+    if (toolContext) {
+      console.log(`[tool-primer] Page loaded with tool="${toolContext}" — sending /set-tool request`)
+      const t0 = performance.now()
+      primeToolContext(toolContext)
+        .then(() => {
+          console.log(`[tool-primer] /set-tool acknowledged in ${(performance.now() - t0).toFixed(0)}ms — backend is warming Gemini cache`)
+        })
+        .catch((err: unknown) => {
+          console.warn('[tool-primer] /set-tool request failed (non-fatal):', err)
+        })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -128,6 +147,9 @@ function MobileCapturePage() {
           {toolContext && (
             <p className="mobile-tool-context">Tool: <strong>{toolContext.replace(/_/g, ' ')}</strong></p>
           )}
+          {greeting && (
+            <p className="mobile-greeting">{greeting}</p>
+          )}
           <p>Open the laptop app, enable Phone Mode, and scan the QR code with your camera. If you typed the URL manually, enter the session code below.</p>
           <form onSubmit={handleConnect} className="mobile-pair-form">
             <input
@@ -156,6 +178,10 @@ function MobileCapturePage() {
           <span className="mobile-tool-label">{toolContext.replace(/_/g, ' ')}</span>
         )}
       </header>
+
+      {greeting && (
+        <div className="mobile-greeting mobile-greeting-banner">{greeting}</div>
+      )}
 
       {capture.insecureContextWarning && (
         <p className="mobile-insecure-banner">

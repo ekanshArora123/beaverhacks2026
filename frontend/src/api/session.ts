@@ -76,3 +76,15 @@ export async function fetchMachineFolders(): Promise<string[]> {
   const json = await response.json() as { folders?: string[] }
   return json.folders ?? []
 }
+
+export async function primeToolContext(tool: string): Promise<void> {
+  // Fire-and-forget — we don't need the response, priming runs in a backend thread.
+  await fetch(
+    buildSessionUrl('/set-tool'),
+    withTunnelFetchInit({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool }),
+    }),
+  )
+}
