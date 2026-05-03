@@ -108,21 +108,6 @@ function Get-GeminiApiKeyFromEnvFile {
     return $null
 }
 
-function Write-JobOutput {
-    param(
-        [System.Management.Automation.Job]$Job,
-        [string]$Label
-    )
-
-    if ($null -eq $Job) {
-        return
-    }
-
-    foreach ($item in (Receive-Job -Job $Job -ErrorAction SilentlyContinue)) {
-        Write-Host "[$Label] $item"
-    }
-}
-
 if (-not (Test-Path -LiteralPath $frontendDir -PathType Container)) {
     throw "Frontend directory not found: $frontendDir"
 }
@@ -268,20 +253,61 @@ if (-not $useSingleTerminal) {
     exit 0
 }
 
+$ngrokLauncher = Start-Job -Name "beaverhacks-ngrok-launcher" -ScriptBlock {
+    param($port, $shellExe, $workDir, $ngrokLine)
+    $deadline = (Get-Date).AddSeconds(120)
+    $ready = $false
+    while ((Get-Date) -lt $deadline -and -not $ready) {
+        $client = $null
+        try {
+            $client = [System.Net.Sockets.TcpClient]::new()
+            $task = $client.ConnectAsync("127.0.0.1", $port)
+            if ($task.Wait(500) -and $client.Connected) {
+                $ready = $true
+            }
+        }
+        catch {
+            # Retry until deadline.
+        }
+        finally {
+            if ($null -ne $client) {
+                $client.Dispose()
+            }
+        }
+        if (-not $ready) {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    if (-not $ready) {
+        Write-Output "Ngrok launcher: port $port not ready in time; start ngrok manually: $ngrokLine"
+    }
+    Start-Process -FilePath $shellExe -WorkingDirectory $workDir -ArgumentList @(
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        $ngrokLine
+    ) -WindowStyle Normal | Out-Null
+} -ArgumentList $FrontendPort, $shellExecutable, $repoRoot, $ngrokWindowCommand
+
 $backendJob = Start-Job -Name "beaverhacks-backend" -ScriptBlock {
     param($workingDirectory, $pythonPath, $scriptPath)
     Set-Location -LiteralPath $workingDirectory
     & $pythonPath $scriptPath
 } -ArgumentList $repoRoot, $pythonExecutable, $backendScript
 
-$frontendJob = Start-Job -Name "beaverhacks-frontend" -ScriptBlock {
-    param($workingDirectory, $defaultCmd, $skipBrowser)
-    Set-Location -LiteralPath $workingDirectory
+Write-Host ('Backend started in background job {0}.' -f $backendJob.Id)
+Write-Host "Ngrok will open in another window once Vite is listening on port $FrontendPort."
+Write-Host 'Frontend is starting in this terminal; press Ctrl+C to stop the backend job.'
+Write-Host 'Pairing QR auto-reads HTTPS from ngrok (localhost:4040). To force one URL use VITE_PAIRING_ORIGIN in frontend/.env.local and restart Vite.'
+
+try {
+    Set-Location -LiteralPath $frontendDir
     if (-not $env:ComSpec) {
-        $env:ComSpec = $defaultCmd
+        $env:ComSpec = $defaultComSpec
     }
     $env:VITE_DISABLE_HMR = 'true'
-    if ($skipBrowser) {
+    if ($NoBrowser) {
         npx vite
     }
     else {
