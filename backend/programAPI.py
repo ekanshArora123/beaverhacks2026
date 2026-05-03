@@ -274,7 +274,9 @@ def analyze():
         { "text": "..." }       on success
         { "error": "..." }      on failure
     """
+    print("Analyze endpoint called...")
     prompt = request.form.get("prompt") or "Describe this media."
+    print(f"Received prompt: {prompt}") 
     file = request.files.get("file")
 
     try:
