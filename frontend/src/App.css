@@ -34,6 +34,10 @@ h2 {
   overflow: hidden;
 }
 
+.main-content.phone-mode-layout {
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.7fr);
+}
+
 /* Left Column - Returned Images */
 .returned-images-column {
   display: flex;
@@ -625,6 +629,8 @@ h2 {
   align-items: center;
   text-align: center;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  max-width: 360px;
+  margin-left: auto;
 }
 
 .pairing-header {
@@ -653,6 +659,10 @@ h2 {
   padding: 0.5rem;
   border-radius: 12px;
   display: inline-block;
+}
+
+.pairing-qr-wrap.pairing-qr-wrap-compact {
+  padding: 0.35rem;
 }
 
 .pairing-url {

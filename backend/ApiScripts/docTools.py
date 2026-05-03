@@ -27,6 +27,7 @@ _MACHINE_DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "machine_doc
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff"}
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml"}
 _PDF_SUFFIXES = {".pdf"}
+_PREFER_MARKDOWN = True
 
 # Large-PDF threshold (pages). Above this we return a summary instead of full text.
 _LARGE_PDF_PAGE_THRESHOLD = 50
@@ -110,15 +111,27 @@ def list_documents(machine_name: str) -> list[dict]:
         print(f"[docTools]   folder not found: {folder}")
         return []
 
+    all_files = [
+        entry for entry in sorted(folder.iterdir())
+        if entry.is_file() and not entry.name.startswith(".")
+    ]
+    md_stems = {entry.stem.lower() for entry in all_files if entry.suffix.lower() == ".md"}
+
     documents = []
-    for entry in sorted(folder.iterdir()):
-        if entry.is_file() and not entry.name.startswith("."):
-            doc_info = {
-                "filename": entry.name,
-                "type": _classify_file(entry.suffix),
-                "size_kb": round(entry.stat().st_size / 1024, 1),
-            }
-            documents.append(doc_info)
+    for entry in all_files:
+        # Prefer markdown companions over PDFs for now.
+        if (
+            _PREFER_MARKDOWN
+            and entry.suffix.lower() == ".pdf"
+            and entry.stem.lower() in md_stems
+        ):
+            continue
+        doc_info = {
+            "filename": entry.name,
+            "type": _classify_file(entry.suffix),
+            "size_kb": round(entry.stat().st_size / 1024, 1),
+        }
+        documents.append(doc_info)
 
     print(f"[docTools]   found {len(documents)} file(s)")
     return documents
@@ -157,6 +170,12 @@ def read_document(machine_name: str, filename: str) -> str:
         print(f"[docTools]   {msg}")
         return f"Error: {msg}"
 
+    if _PREFER_MARKDOWN and file_path.suffix.lower() == ".pdf":
+        md_candidate = file_path.with_suffix(".md")
+        if md_candidate.exists() and md_candidate.is_file():
+            print(f"[docTools]   using markdown companion: {md_candidate.name}")
+            file_path = md_candidate
+
     suffix = file_path.suffix.lower()
     file_type = _classify_file(suffix)
 
@@ -173,7 +192,7 @@ def read_document(machine_name: str, filename: str) -> str:
         return _read_image_metadata(file_path)
 
     # ── Unsupported ──────────────────────────────────────────────────────
-    return f"Unsupported file type: {filename} ({suffix}). Only PDFs, text files, and images are supported."
+    return f"Unsupported file type: {file_path.name} ({suffix}). Only PDFs, text files, and images are supported."
 
 
 # ─── Internal helpers ────────────────────────────────────────────────────────

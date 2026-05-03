@@ -11,6 +11,7 @@ interface SessionPairingPanelProps {
   code: string | null
   errorMessage: string | null
   lastPayloadAt: number | null
+  compact?: boolean
 }
 
 function isLocalhostHostname(hostname: string): boolean {
@@ -62,7 +63,7 @@ function originUsesPrivateLanIp(origin: string): boolean {
   }
 }
 
-function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: SessionPairingPanelProps) {
+function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt, compact = false }: SessionPairingPanelProps) {
   const laptopHostname = typeof window !== 'undefined' ? window.location.hostname : ''
   const laptopUsesLoopback = isLocalhostHostname(laptopHostname)
   const envTunnelOrigin = useMemo(() => getPairingOriginOverride(), [])
@@ -266,8 +267,8 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
             </div>
           )}
 
-          <div className="pairing-qr-wrap">
-            <QRCodeCanvas value={mobileUrl} size={180} marginSize={2} level="M" />
+          <div className={`pairing-qr-wrap ${compact ? 'pairing-qr-wrap-compact' : ''}`}>
+            <QRCodeCanvas value={mobileUrl} size={compact ? 120 : 180} marginSize={2} level="M" />
           </div>
 
           <p className="pairing-url">{mobileUrl}</p>

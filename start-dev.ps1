@@ -73,6 +73,21 @@ function Open-FrontendBrowser {
     return $false
 }
 
+function Write-JobOutput {
+    param(
+        [System.Management.Automation.Job]$Job,
+        [string]$Label
+    )
+
+    if ($null -eq $Job) {
+        return
+    }
+
+    foreach ($item in (Receive-Job -Job $Job -ErrorAction SilentlyContinue)) {
+        Write-Host "[$Label] $item"
+    }
+}
+
 function Get-GeminiApiKeyFromEnvFile {
     param(
         [string]$FilePath
@@ -155,7 +170,7 @@ if ($SingleTerminal -and $SeparateWindows) {
     throw "Use either -SingleTerminal or -SeparateWindows, not both."
 }
 
-$useSingleTerminal = $SingleTerminal
+$useSingleTerminal = -not $SeparateWindows
 
 $shellCommand = Get-Command powershell -ErrorAction SilentlyContinue
 if ($null -eq $shellCommand) {
@@ -217,29 +232,54 @@ $backendJob = Start-Job -Name "beaverhacks-backend" -ScriptBlock {
     & $pythonPath $scriptPath
 } -ArgumentList $repoRoot, $pythonExecutable, $backendScript
 
-Write-Host "Backend started in background job $($backendJob.Id)."
-Write-Host "Frontend is starting in the current terminal. Press Ctrl+C to stop both."
-Write-Host "VITE_DISABLE_HMR=true (phone-friendly). Firewall: scripts\\allow-dev-ports-firewall.ps1 as Admin if needed."
-
-try {
-    Set-Location -LiteralPath $frontendDir
+$frontendJob = Start-Job -Name "beaverhacks-frontend" -ScriptBlock {
+    param($workingDirectory, $defaultCmd, $disableHmr, $enableHttps, $skipBrowser)
+    Set-Location -LiteralPath $workingDirectory
     if (-not $env:ComSpec) {
-        $env:ComSpec = $defaultComSpec
+        $env:ComSpec = $defaultCmd
     }
-    $env:VITE_DISABLE_HMR = 'true'
-    if ($DevHttps) {
+    if ($disableHmr) {
+        $env:VITE_DISABLE_HMR = 'true'
+    }
+    if ($enableHttps) {
         $env:VITE_DEV_HTTPS = 'true'
     }
-    if ($NoBrowser) {
+    if ($skipBrowser) {
         npx vite
     }
     else {
         npx vite --open
+    }
+} -ArgumentList $frontendDir, $defaultComSpec, $true, $DevHttps.IsPresent, $NoBrowser.IsPresent
+
+Write-Host "Backend and frontend started in background jobs."
+Write-Host "Streaming both logs in this terminal. Press Ctrl+C to stop all services."
+Write-Host "VITE_DISABLE_HMR=true (phone-friendly). Firewall: scripts\\allow-dev-ports-firewall.ps1 as Admin if needed."
+
+try {
+    while ($true) {
+        Write-JobOutput -Job $backendJob -Label "backend"
+        Write-JobOutput -Job $frontendJob -Label "frontend"
+
+        if ($backendJob.State -match 'Completed|Failed|Stopped') {
+            Write-Host "Backend job ended with state: $($backendJob.State)"
+            break
+        }
+        if ($frontendJob.State -match 'Completed|Failed|Stopped') {
+            Write-Host "Frontend job ended with state: $($frontendJob.State)"
+            break
+        }
+
+        Start-Sleep -Milliseconds 350
     }
 }
 finally {
     if ($null -ne $backendJob) {
         Stop-Job -Job $backendJob -ErrorAction SilentlyContinue | Out-Null
         Remove-Job -Job $backendJob -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+    if ($null -ne $frontendJob) {
+        Stop-Job -Job $frontendJob -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job -Job $frontendJob -Force -ErrorAction SilentlyContinue | Out-Null
     }
 }
