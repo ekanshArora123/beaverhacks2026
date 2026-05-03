@@ -122,13 +122,21 @@ def build_prompt(
     previous_context: str,
     schematic_names: list[str],
     user_image_names: list[str],
+    tool_context: str = "",
 ) -> str:
     """Construct the full prompt as a single f-string."""
 
     # -- sub-sections built before the f-string for readability ----------------
+    _effective_machine_info = machine_info.strip() if machine_info else ""
+    if not _effective_machine_info and tool_context and tool_context.strip():
+        _effective_machine_info = (
+            f"TARGET MACHINE: {tool_context.strip()}\n"
+            "Use the document retrieval tools to load documentation for this machine "
+            "before answering the technician's question."
+        )
     machine_section = (
-        machine_info.strip()
-        if machine_info and machine_info.strip()
+        _effective_machine_info
+        if _effective_machine_info
         else "No specific machine information was provided. Use your general technical knowledge, but inform the technician if you need more details about their specific machine."
     )
 

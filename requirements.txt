@@ -2,4 +2,5 @@ flask
 flask-cors
 google-genai
 PyMuPDF
+qrcode[pil]
 pymupdf4llm

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { fetchNgrokAgentHttpsOrigin } from './api/ngrokAgentTunnels'
-import { fetchHostInfo } from './api/session'
+import { fetchHostInfo, fetchMachineFolders } from './api/session'
 import { getPairingOriginOverride } from './env/pairing'
 
 export type PairingState = 'idle' | 'creating' | 'waiting' | 'connected' | 'error'
@@ -69,6 +69,15 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt, compact
   const envTunnelOrigin = useMemo(() => getPairingOriginOverride(), [])
   const [agentTunnelOrigin, setAgentTunnelOrigin] = useState<string | null>(null)
   const pairingTunnelOrigin = envTunnelOrigin ?? agentTunnelOrigin
+
+  const [machineFolders, setMachineFolders] = useState<string[]>([])
+  const [selectedTool, setSelectedTool] = useState<string>('')
+
+  useEffect(() => {
+    fetchMachineFolders()
+      .then(setMachineFolders)
+      .catch(() => { /* non-fatal — selector stays hidden */ })
+  }, [])
 
   const [resolvedOrigin, setResolvedOrigin] = useState<ResolvedPhoneOrigin>(() => ({
     origin: typeof window !== 'undefined' ? window.location.origin : '',
@@ -203,7 +212,8 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt, compact
 
   const hostnameForQr = qrLanHost ?? laptopHostname
   const mobileOrigin = pairingTunnelOrigin ?? buildOriginFromHostname(hostnameForQr)
-  const mobileUrl = `${mobileOrigin}/mobile?code=${encodeURIComponent(code)}`
+  const toolParam = selectedTool ? `&tool=${encodeURIComponent(selectedTool)}` : ''
+  const mobileUrl = `${mobileOrigin}/mobile?code=${encodeURIComponent(code)}${toolParam}`
   const qrWouldUseLoopback =
     !pairingTunnelOrigin && lanProbeDone && isLocalhostHostname(hostnameForQr)
   const qrLooksLikeBlockedCampusLan =
@@ -215,6 +225,25 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt, compact
         <span className="pairing-label">Phone session</span>
         <span className="pairing-code">{code}</span>
       </div>
+
+      {machineFolders.length > 0 && (
+        <div className="pairing-tool-row">
+          <label htmlFor="pairing-tool-select">Machine context</label>
+          <select
+            id="pairing-tool-select"
+            className="pairing-ip-select"
+            value={selectedTool}
+            onChange={(event) => setSelectedTool(event.target.value)}
+          >
+            <option value="">— none —</option>
+            {machineFolders.map((folder) => (
+              <option key={folder} value={folder}>
+                {folder.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {pairingTunnelOrigin && (
         <div className="pairing-status pairing-status-connected">

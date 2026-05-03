@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { postSessionInput } from './api/session'
+import { postSessionInput, primeToolContext } from './api/session'
 import { useCaptureSession } from './hooks/useCaptureSession'
 import './MobileCapturePage.css'
 
@@ -21,8 +21,17 @@ function readCodeFromQuery(): string {
   return (params.get('code') || '').trim().toUpperCase()
 }
 
+function readToolFromQuery(): string {
+  const params = new URLSearchParams(window.location.search)
+  return (params.get('tool') || '').trim()
+}
+
 function MobileCapturePage() {
   const [code, setCode] = useState<string>(readCodeFromQuery())
+  const [toolContext] = useState<string>(readToolFromQuery())
+  const greeting = toolContext
+    ? `How can I help you with ${toolContext.replace(/_/g, ' ')} today?`
+    : ''
   const [codeInput, setCodeInput] = useState<string>('')
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle')
   const [statusMessage, setStatusMessage] = useState<string>('')
@@ -34,12 +43,29 @@ function MobileCapturePage() {
     enabled: code.length > 0,
   })
 
+  // Prime Gemini's KV cache as soon as the tool QR is opened
   useEffect(() => {
-    if (code) {
-      const newUrl = `${window.location.pathname}?code=${encodeURIComponent(code)}`
-      window.history.replaceState(null, '', newUrl)
+    if (toolContext) {
+      console.log(`[tool-primer] Page loaded with tool="${toolContext}" — sending /set-tool request`)
+      const t0 = performance.now()
+      primeToolContext(toolContext)
+        .then(() => {
+          console.log(`[tool-primer] /set-tool acknowledged in ${(performance.now() - t0).toFixed(0)}ms — backend is warming Gemini cache`)
+        })
+        .catch((err: unknown) => {
+          console.warn('[tool-primer] /set-tool request failed (non-fatal):', err)
+        })
     }
-  }, [code])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (code) params.set('code', code)
+    if (toolContext) params.set('tool', toolContext)
+    const search = params.toString() ? `?${params.toString()}` : ''
+    window.history.replaceState(null, '', `${window.location.pathname}${search}`)
+  }, [code, toolContext])
 
   const handleConnect = (event: React.FormEvent) => {
     event.preventDefault()
@@ -87,6 +113,10 @@ function MobileCapturePage() {
         formData.append('text_source_2', trimmedText)
       }
 
+      if (toolContext) {
+        formData.append('tool_context', toolContext)
+      }
+
       const result = await postSessionInput(code, formData)
 
       setSendStatus('success')
@@ -114,6 +144,12 @@ function MobileCapturePage() {
       <div className="mobile-app">
         <div className="mobile-pair-card">
           <h1>Pair with laptop</h1>
+          {toolContext && (
+            <p className="mobile-tool-context">Tool: <strong>{toolContext.replace(/_/g, ' ')}</strong></p>
+          )}
+          {greeting && (
+            <p className="mobile-greeting">{greeting}</p>
+          )}
           <p>Open the laptop app, enable Phone Mode, and scan the QR code with your camera. If you typed the URL manually, enter the session code below.</p>
           <form onSubmit={handleConnect} className="mobile-pair-form">
             <input
@@ -138,7 +174,14 @@ function MobileCapturePage() {
       <header className="mobile-header">
         <span className="mobile-session-label">Session</span>
         <span className="mobile-session-code">{code}</span>
+        {toolContext && (
+          <span className="mobile-tool-label">{toolContext.replace(/_/g, ' ')}</span>
+        )}
       </header>
+
+      {greeting && (
+        <div className="mobile-greeting mobile-greeting-banner">{greeting}</div>
+      )}
 
       {capture.insecureContextWarning && (
         <p className="mobile-insecure-banner">

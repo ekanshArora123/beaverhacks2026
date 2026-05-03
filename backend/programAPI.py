@@ -57,6 +57,16 @@ try:
 except ImportError:
     import sessionStore
 
+try:
+    from .ApiScripts.docTools import list_machine_folders as _list_machine_folders
+except ImportError:
+    from ApiScripts.docTools import list_machine_folders as _list_machine_folders
+
+try:
+    from .ApiScripts import toolPrimer as _tool_primer
+except ImportError:
+    from ApiScripts import toolPrimer as _tool_primer
+
 
 app = Flask(__name__)
 CORS(app)
@@ -348,6 +358,16 @@ def analyze():
     legacy_prompt = _optional_str(_read_request_value(payload, "prompt"))
     if not text_source_1:
         text_source_1 = machine_info or legacy_prompt or ""
+
+    # If a tool context is provided and we have cached documentation for it,
+    # prepend it so the prompt prefix matches the KV-cached content from /set-tool.
+    tool_context = _optional_str(_read_request_value(payload, "tool_context"))
+    if tool_context:
+        cached_docs = _tool_primer.get_cached_docs(tool_context)
+        if cached_docs:
+            display = tool_context.replace("_", " ")
+            doc_prefix = f"=== {display} DOCUMENTATION ===\n{cached_docs}\n=== END DOCUMENTATION ==="
+            text_source_1 = (f"{doc_prefix}\n\n{text_source_1}").strip() if text_source_1 else doc_prefix
 
     mode = _optional_str(_read_request_value(payload, "mode")) or "text"
     prompt_text = _optional_str(_read_request_value(payload, "prompt_text"))
@@ -737,6 +757,50 @@ def _normalize_session_code(code: str) -> str:
     return (code or "").strip().upper()
 
 
+@app.route("/machine-folders", methods=["GET"])
+def machine_folders():
+    """Return the list of machine documentation folder names."""
+    try:
+        return jsonify({"folders": _list_machine_folders()})
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
+@app.route("/set-tool", methods=["POST"])
+def set_tool():
+    """Prime Gemini's KV cache with documentation for a specific tool.
+
+    Called immediately when a tool QR code is scanned.  Returns at once
+    while extraction + priming run in a background thread.
+    """
+    print("[set-tool] Request received")
+    body = request.get_json(silent=True, force=True) or {}
+    tool_name = _optional_str(
+        body.get("tool") or request.form.get("tool") or request.args.get("tool")
+    )
+    print(f"[set-tool] tool_name={tool_name!r}  body={body}")
+    if not tool_name:
+        return jsonify({"error": "tool parameter is required"}), 400
+
+    # Validate: tool must exist as a machine_docs subfolder
+    available = _list_machine_folders()
+    print(f"[set-tool] available folders: {available}")
+    if tool_name not in available:
+        return jsonify({"error": f"Unknown tool: {tool_name!r}", "available": available}), 404
+
+    try:
+        backend = create_sequence_backend()
+        client = backend.get_client()
+        _tool_primer.start_prime_background(tool_name, client, backend.text_model)
+    except Exception as exc:
+        # Non-fatal — priming is best-effort
+        print(f"[set-tool] Failed to start prime for {tool_name!r}: {exc}")
+
+    display_name = tool_name.replace("_", " ")
+    print(f"[set-tool] Priming started for {tool_name!r}")
+    return jsonify({"status": "priming", "tool": tool_name, "display_name": display_name})
+
+
 @app.route("/session/<code>/input", methods=["POST"])
 def session_input(code: str):
     code = _normalize_session_code(code)
@@ -764,6 +828,7 @@ def session_input(code: str):
 
         text_value = _optional_str(request.form.get("text_source_2") or request.form.get("text"))
         diagram_source = _optional_str(request.form.get("diagram_source"))
+        tool_context = _optional_str(request.form.get("tool_context"))
 
         if not image_data_urls and not audio_data_url and not text_value:
             return jsonify({"error": "Phone payload must include at least one image, audio, or text"}), 400
@@ -775,6 +840,7 @@ def session_input(code: str):
             "audio_extension": audio_extension,
             "text_source_2": text_value,
             "diagram_source": diagram_source,
+            "tool_context": tool_context,
             "received_at": time.time(),
         }
 

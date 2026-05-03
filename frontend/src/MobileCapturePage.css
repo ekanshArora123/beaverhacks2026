@@ -1,3 +1,39 @@
+.mobile-tool-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #4dabf7;
+  font-weight: 600;
+  margin-left: auto;
+  padding-left: 0.5rem;
+}
+
+.mobile-greeting {
+  color: #4dabf7;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.25rem 0;
+}
+
+.mobile-greeting-banner {
+  background: rgba(77, 171, 247, 0.1);
+  border: 1px solid rgba(77, 171, 247, 0.3);
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.95rem;
+}
+
+.mobile-tool-context {
+  color: #4dabf7;
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.mobile-tool-context strong {
+  color: #fff;
+}
+
 .mobile-app {
   min-height: 100vh;
   background: #1a1f24;
