@@ -1,7 +1,7 @@
 
 import base64
+import importlib.util
 import os
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -11,11 +11,22 @@ from flask_cors import CORS
 from google import genai
 from google.genai import types
 
-sys.path.insert(0, str(Path(__file__).parent / "AIBackend"))
-try:
-    from keys import GEMINI_KEY
-except ImportError:
-    GEMINI_KEY = None
+
+def _load_repo_key() -> str | None:
+    keys_path = Path(__file__).resolve().parent.parent / "keys.py"
+    if not keys_path.exists():
+        return None
+
+    spec = importlib.util.spec_from_file_location("workspace_keys", keys_path)
+    if spec is None or spec.loader is None:
+        return None
+
+    keys_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(keys_module)
+    return getattr(keys_module, "GEMINI_KEY", None)
+
+
+GEMINI_KEY = _load_repo_key()
 
 app = Flask(__name__)
 CORS(app)
@@ -145,5 +156,15 @@ def generate():
         return jsonify({"error": str(exc)}), 500
 
 
+def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
+    """Start the backend HTTP server and wait for frontend API calls."""
+    print(f"Backend API listening on http://{host}:{port}")
+    print("Routes: GET /health, POST /analyze, POST /generate")
+    app.run(host=host, port=port, debug=debug)
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    default_host = os.environ.get("BACKEND_HOST", "0.0.0.0")
+    default_port = int(os.environ.get("BACKEND_PORT", "5000"))
+    default_debug = os.environ.get("BACKEND_DEBUG", "false").lower() in {"1", "true", "yes", "on"}
+    run_server(host=default_host, port=default_port, debug=default_debug)
