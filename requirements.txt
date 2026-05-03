@@ -4,3 +4,4 @@ google-genai
 PyMuPDF
 qrcode[pil]
 pymupdf4llm
+python-dotenv

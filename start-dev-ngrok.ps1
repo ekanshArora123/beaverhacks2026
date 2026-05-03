@@ -50,6 +50,30 @@ function Wait-ForTcpPort {
     return $false
 }
 
+function Get-NgrokHttpsUrl {
+    param(
+        [int]$TimeoutSeconds = 30
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 2 -ErrorAction Stop
+            if ($null -ne $response.tunnels) {
+                $httpsTunnel = $response.tunnels | Where-Object { $_.public_url -match '^https://' } | Select-Object -First 1
+                if ($httpsTunnel -and $httpsTunnel.public_url) {
+                    return $httpsTunnel.public_url
+                }
+            }
+        }
+        catch {
+            # Agent not ready yet — keep polling until deadline.
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return $null
+}
+
 function Get-GeminiApiKeyFromEnvFile {
     param(
         [string]$FilePath
@@ -149,7 +173,10 @@ if ($SingleTerminal -and $SeparateWindows) {
     throw "Use either -SingleTerminal or -SeparateWindows, not both."
 }
 
-$useSingleTerminal = -not $SeparateWindows
+# Default to separate windows so backend + frontend are visibly running. Single-terminal mode
+# hides them as background jobs in the calling terminal — if that terminal dies, ngrok 502s
+# silently because Vite/Flask are gone with no visible failure.
+$useSingleTerminal = $SingleTerminal.IsPresent
 
 $shellCommand = Get-Command powershell -ErrorAction SilentlyContinue
 if ($null -eq $shellCommand) {
@@ -175,8 +202,8 @@ if ($DryRun) {
     Write-Host "Auto-open browser: $(if ($NoBrowser) { 'Disabled' } else { 'Enabled' })"
     Write-Host "Backend command: $backendCommand"
     Write-Host "Frontend command: $frontendCommand"
-    Write-Host "After ngrok shows an HTTPS URL, set frontend/.env.local: VITE_PAIRING_ORIGIN=<that-url> and restart Vite for tunnel QR (see frontend/.env.example)."
     Write-Host "Ngrok window command: $ngrokWindowCommand"
+    Write-Host "Startup order: ngrok window -> wait for ngrok HTTPS on :4040 -> start backend + frontend (browser opens after ngrok is ready)."
     exit 0
 }
 
@@ -200,6 +227,23 @@ function Start-NgrokWindow {
     ) -WindowStyle Normal | Out-Null
 }
 
+# ngrok always runs in its own window: it expects a TTY for its dashboard, and stdout-buffered jobs
+# silently swallow agent errors (auth, rate-limit) and make troubleshooting impossible.
+Start-NgrokWindow -ShellExe $shellExecutable -WorkingDirectory $repoRoot -NgrokCommand $ngrokWindowCommand
+Write-Host "Started ngrok in a new window. Waiting for HTTPS tunnel on agent (127.0.0.1:4040)..."
+
+$ngrokHttpsUrl = Get-NgrokHttpsUrl -TimeoutSeconds 30
+if ($ngrokHttpsUrl) {
+    Write-Host ""
+    Write-Host "  ngrok HTTPS tunnel: $ngrokHttpsUrl" -ForegroundColor Green
+    Write-Host "  Pairing QR will auto-pick this URL from the ngrok agent. No .env.local edit required."
+    Write-Host ""
+} else {
+    Write-Host "Warning: ngrok did not expose an HTTPS tunnel within 30s." -ForegroundColor Yellow
+    Write-Host "  Common causes: missing authtoken (run 'ngrok config add-authtoken <token>'), free-tier session limit, or firewall."
+    Write-Host "  The pairing QR will fall back to a LAN IP and likely fail on eduroam. Check the ngrok window for errors."
+}
+
 if (-not $useSingleTerminal) {
     $backendProcess = Start-Process -FilePath $shellExecutable -WorkingDirectory $repoRoot -ArgumentList @(
         "-NoExit",
@@ -220,18 +264,7 @@ if (-not $useSingleTerminal) {
     Write-Host "Started backend and frontend in separate PowerShell windows."
     Write-Host "Backend PID: $($backendProcess.Id)"
     Write-Host "Frontend PID: $($frontendProcess.Id)"
-    Write-Host "Waiting for Vite on 127.0.0.1:$FrontendPort (up to 120s), then starting ngrok ..."
-
-    if (-not (Wait-ForTcpPort -HostName "127.0.0.1" -Port $FrontendPort -TimeoutSeconds 120)) {
-        Write-Host "Warning: Vite did not accept connections in time. Starting ngrok anyway - fix Vite, then restart ngrok from its window if needed."
-    }
-
-    Start-NgrokWindow -ShellExe $shellExecutable -WorkingDirectory $repoRoot -NgrokCommand $ngrokWindowCommand
-
-    Write-Host "Started ngrok in a new window."
-    Write-Host "Copy the HTTPS Forwarding URL into frontend/.env.local as VITE_PAIRING_ORIGIN=... then restart the frontend window (or run npm run dev in frontend) so the pairing QR uses the tunnel."
-    Write-Host "On ngrok free, the phone browser may show an interstitial once: tap Visit Site. Vite allows common tunnel hostnames; see frontend/.env.example if you still see Blocked request."
-    Write-Host "Pairing QR auto-picks ngrok HTTPS from the ngrok agent (localhost:4040) when ngrok runs; frontend/.env.local VITE_PAIRING_ORIGIN overrides if needed."
+    Write-Host "On ngrok free, the phone browser may show an interstitial once: tap Visit Site."
     exit 0
 }
 
@@ -256,20 +289,13 @@ $frontendJob = Start-Job -Name "beaverhacks-frontend" -ScriptBlock {
     }
 } -ArgumentList $frontendDir, $defaultComSpec, $NoBrowser.IsPresent
 
-$ngrokJob = Start-Job -Name "beaverhacks-ngrok" -ScriptBlock {
-    param($port)
-    ngrok http $port
-} -ArgumentList $FrontendPort
-
-Write-Host "Backend, frontend, and ngrok started in background jobs."
-Write-Host "Streaming all logs in this terminal. Press Ctrl+C to stop all services."
-Write-Host 'Pairing QR auto-reads HTTPS from ngrok (localhost:4040). To force one URL use VITE_PAIRING_ORIGIN in frontend/.env.local and restart Vite.'
+Write-Host "Backend and frontend started in background jobs (ngrok runs in its own window above)."
+Write-Host "Streaming logs in this terminal. Press Ctrl+C to stop backend + frontend (close the ngrok window separately)."
 
 try {
     while ($true) {
         Write-JobOutput -Job $backendJob -Label "backend"
         Write-JobOutput -Job $frontendJob -Label "frontend"
-        Write-JobOutput -Job $ngrokJob -Label "ngrok"
 
         if ($backendJob.State -match 'Completed|Failed|Stopped') {
             Write-Host "Backend job ended with state: $($backendJob.State)"
@@ -277,10 +303,6 @@ try {
         }
         if ($frontendJob.State -match 'Completed|Failed|Stopped') {
             Write-Host "Frontend job ended with state: $($frontendJob.State)"
-            break
-        }
-        if ($ngrokJob.State -match 'Completed|Failed|Stopped') {
-            Write-Host "Ngrok job ended with state: $($ngrokJob.State)"
             break
         }
 
@@ -295,9 +317,5 @@ finally {
     if ($null -ne $frontendJob) {
         Stop-Job -Job $frontendJob -ErrorAction SilentlyContinue | Out-Null
         Remove-Job -Job $frontendJob -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-    if ($null -ne $ngrokJob) {
-        Stop-Job -Job $ngrokJob -ErrorAction SilentlyContinue | Out-Null
-        Remove-Job -Job $ngrokJob -Force -ErrorAction SilentlyContinue | Out-Null
     }
 }
