@@ -27,14 +27,14 @@ except ImportError:
 	from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
-	from .ApiScripts.diagramPrompt import MainPromptMixin
+	from .ApiScripts.mainPrompt import MainPromptMixin
 except ImportError:
-	from ApiScripts.diagramPrompt import MainPromptMixin
+	from ApiScripts.mainPrompt import MainPromptMixin
 
 try:
-	from .ApiScripts.mainPrompt import SecondPromptMixin
+	from .ApiScripts.diagramPrompt import DiagramPromptMixin
 except ImportError:
-	from ApiScripts.mainPrompt import SecondPromptMixin
+	from ApiScripts.diagramPrompt import DiagramPromptMixin
 
 try:
 	from .ApiScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
@@ -57,7 +57,7 @@ def load_api_key() -> str:
 
 
 @dataclass
-class GeminiSequenceBackend(MainPromptMixin, SecondPromptMixin, StateUpdateMixin, TTSMixin):
+class GeminiSequenceBackend(MainPromptMixin, DiagramPromptMixin, StateUpdateMixin, TTSMixin):
 	text_model: str = TEXT_MODEL
 	vision_model: str = VISION_MODEL
 	voice_model: str = VOICE_MODEL
@@ -116,7 +116,7 @@ class GeminiSequenceBackend(MainPromptMixin, SecondPromptMixin, StateUpdateMixin
 		)
 
 		third_result = (
-			self.run_third_prompt(str(second_result.get("response_text", ""))) if voice_output else None
+			self.run_third_prompt(str(first_result.get("response_text", ""))) if voice_output else None
 		)
 
 		fourth_result = self.run_fourth_prompt(task_name, updated_status) if updated_status else None
@@ -136,7 +136,7 @@ def main() -> None:
 		"backend.run_first_prompt(['image1.png'], text_source_1='source a', text_source_2='source b', task_name='task1')"
 	)
 	print("Example call 2:")
-	print("backend.run_second_prompt(first_prompt_response='diagram text', task_name='task1')")
+	print("backend.run_second_prompt(first_prompt_response='instruction text', task_name='task1')")
 	print("backend.run_third_prompt('instruction text')")
 	print("backend.run_fourth_prompt('task1', 'updated status')")
 	print("backend.run_four_prompts(['image1.png'], task_name='task1', text_source_1='source a')")
