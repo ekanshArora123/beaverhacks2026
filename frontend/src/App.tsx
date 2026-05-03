@@ -6,13 +6,73 @@ interface CapturedImage {
   dataUrl: string
 }
 
+interface AnalyzeResponse {
+  text?: string
+  image?: string | null
+  image_mime?: string | null
+  model?: string
+  error?: string
+}
+
+interface VoiceToTextResponse {
+  text?: string
+  user_input_text?: string
+  model?: string
+  error?: string
+}
+
+interface RecorderFormat {
+  mimeType: string
+  extension: string
+}
+
+const DEFAULT_ANALYZE_PROMPT = 'Analyze this image and describe what you see.'
+const PROGRAM_API_BASE_URL = ((import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim() || 'http://127.0.0.1:5000').replace(/\/+$/, '')
+
+const RECORDER_FORMAT_CANDIDATES: RecorderFormat[] = [
+  { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },
+  { mimeType: 'audio/ogg', extension: 'ogg' },
+  { mimeType: 'audio/mp4', extension: 'm4a' },
+  { mimeType: 'audio/aac', extension: 'aac' },
+  { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
+  { mimeType: 'audio/webm', extension: 'webm' },
+]
+
+function buildApiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${PROGRAM_API_BASE_URL}${normalizedPath}`
+}
+
+function resolveRecorderFormat(): RecorderFormat {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return { mimeType: 'audio/webm', extension: 'webm' }
+  }
+
+  for (const candidate of RECORDER_FORMAT_CANDIDATES) {
+    if (MediaRecorder.isTypeSupported(candidate.mimeType)) {
+      return candidate
+    }
+  }
+
+  return { mimeType: 'audio/webm', extension: 'webm' }
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T | null> {
+  try {
+    return await response.json() as T
+  } catch {
+    return null
+  }
+}
+
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
-
+  const recorderFormatRef = useRef<RecorderFormat | null>(null)
+  
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
   const [returnedImages, setReturnedImages] = useState<string[]>([])
@@ -24,6 +84,9 @@ function App() {
   useEffect(() => {
     // Request webcam and microphone access
     const enableMediaCapture = async () => {
+      let animationFrameId = 0
+      let audioContext: AudioContext | null = null
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -34,8 +97,10 @@ function App() {
           videoRef.current.srcObject = stream
         }
 
+        const recorderFormat = resolveRecorderFormat()
+        recorderFormatRef.current = recorderFormat
         const mediaRecorder = new MediaRecorder(stream, {
-          mimeType: 'audio/webm'
+          mimeType: recorderFormat.mimeType,
         })
         mediaRecorderRef.current = mediaRecorder
 
@@ -46,16 +111,21 @@ function App() {
         }
 
         mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+          const activeRecorderFormat = recorderFormatRef.current
+          if (!activeRecorderFormat) {
+            return
+          }
+          const audioBlob = new Blob(audioChunksRef.current, { type: activeRecorderFormat.mimeType })
           audioChunksRef.current = [] // reset
-          await sendAudioToBackend(audioBlob)
+          await sendAudioToBackend(audioBlob, activeRecorderFormat)
         }
 
         // --- Automated Voice Activity Detection (VAD) ---
-        const audioContext = new AudioContext()
-        audioContextRef.current = audioContext
-        const analyser = audioContext.createAnalyser()
-        const microphone = audioContext.createMediaStreamSource(stream)
+        const localAudioContext = new AudioContext()
+        audioContext = localAudioContext
+        audioContextRef.current = localAudioContext
+        const analyser = localAudioContext.createAnalyser()
+        const microphone = localAudioContext.createMediaStreamSource(stream)
 
         analyser.smoothingTimeConstant = 0.8
         analyser.fftSize = 1024
@@ -63,7 +133,6 @@ function App() {
 
         let isSpeaking = false
         let silenceTimer: ReturnType<typeof setTimeout> | null = null
-        let animationFrameId: number
         const array = new Uint8Array(analyser.frequencyBinCount)
 
         const checkAudioLevel = () => {
@@ -76,7 +145,7 @@ function App() {
             }
           }
 
-          // VOLUME THRESHOLD: Volume ranges from 0 to 255. 
+          // VOLUME THRESHOLD: Volume ranges from 0 to 255.
           const THRESHOLD = 10
 
           if (maxVolume > THRESHOLD) {
@@ -85,8 +154,8 @@ function App() {
               isSpeaking = true
               if (mediaRecorder.state === "inactive") {
                 // Ensure audio context is running (browsers suspend it if no user interaction occurred)
-                if (audioContext.state === 'suspended') {
-                  audioContext.resume()
+                if (localAudioContext.state === 'suspended') {
+                  void localAudioContext.resume()
                 }
                 mediaRecorder.start()
                 setIsRecording(true)
@@ -113,17 +182,14 @@ function App() {
             }
           }
 
-          // Debug log (uncomment if you want to see exact volume in dev tools)
-          // console.log("Max Volume:", maxVolume, "Context State:", audioContext.state)
-
           // Debug log - open DevTools (F12) to see this!
           // If this says 0 continuously, your browser is using the wrong microphone 
           // or the audio engine is still suspended.
-          if (maxVolume > 0 || audioContext.state === 'suspended') {
-            console.log("Max Volume:", maxVolume, " | Context State:", audioContext.state)
+          if (maxVolume > 0 || localAudioContext.state === 'suspended') {
+            console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state)
           }
 
-          // Loop forever, save ID for cleanup
+          // Loop forever
           animationFrameId = requestAnimationFrame(checkAudioLevel)
         }
 
@@ -134,15 +200,31 @@ function App() {
         console.error('Error accessing webcam/microphone:', error)
         setWebcamError('Unable to access webcam/microphone. Please grant permissions.')
       }
+
+      return () => {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId)
+        }
+        if (audioContext) {
+          void audioContext.close()
+        }
+        if (audioContextRef.current === audioContext) {
+          audioContextRef.current = null
+        }
+      }
     }
 
-    enableMediaCapture()
+    let cleanupInternal: (() => void) | undefined
+    void enableMediaCapture().then((cleanupFn) => {
+      cleanupInternal = cleanupFn
+    })
 
     // Cleanup: stop video and audio streams when component unmounts
     return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId)
-      if (audioContextRef.current) audioContextRef.current.close()
-      
+      if (cleanupInternal) {
+        cleanupInternal()
+      }
+
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
@@ -153,6 +235,14 @@ function App() {
       }
     }
   }, [])
+
+  const getAnalysisPrompt = () => {
+    const normalizedTranscription = transcription.trim()
+    if (!normalizedTranscription || normalizedTranscription === 'Listening...' || normalizedTranscription === 'Thinking...') {
+      return DEFAULT_ANALYZE_PROMPT
+    }
+    return normalizedTranscription
+  }
 
   const captureImage = () => {
     if (!videoRef.current || !canvasRef.current) return
@@ -207,86 +297,86 @@ function App() {
 
       const formData = new FormData()
       formData.append('file', imageBlob, 'capture.png')
-      formData.append('prompt', 'Analyze this image and describe what you see.')
-
+      formData.append('prompt', getAnalysisPrompt())
+      
       // Call backend
-      console.log('Calling backend at http://127.0.0.1:5000/analyze')
-      const apiResponse = await fetch('http://127.0.0.1:5000/analyze', {
+      const analyzeUrl = buildApiUrl('/analyze')
+      console.log('Calling backend at', analyzeUrl)
+      const apiResponse = await fetch(analyzeUrl, {
         method: 'POST',
         body: formData
       })
 
       console.log('Response status:', apiResponse.status)
 
+      const result = await parseJsonResponse<AnalyzeResponse>(apiResponse)
+
       if (!apiResponse.ok) {
-        const errorData = await apiResponse.json().catch(() => ({ error: 'Unknown error' }))
-        console.error('Backend error:', errorData)
-        throw new Error(`API error: ${apiResponse.status} - ${errorData.error || 'Unknown error'}`)
+        const errorMessage = result?.error || 'Unknown error'
+        console.error('Backend error:', result)
+        throw new Error(`API error: ${apiResponse.status} - ${errorMessage}`)
       }
 
-      const result = await apiResponse.json()
       console.log('Backend response:', result)
 
-      if (result.audio) {
-        const audioUrl = `data:audio/webm;base64,${result.audio}`
-        const audio = new Audio(audioUrl)
-        audio.play()
-      }
-
-      if (result.images && Array.isArray(result.images)) {
-        setReturnedImages(result.images)
-      } else if (result.image) {
+      if (result?.image) {
         const imageUrl = `data:${result.image_mime || 'image/png'};base64,${result.image}`
         setReturnedImages([imageUrl])
+      } else {
+        setReturnedImages([])
       }
 
-      console.log('Backend response:', result)
-      alert(`Analysis: ${result.text || 'No response'}`)
+      alert(`Analysis: ${result?.text || 'No response'}`)
 
       setCapturedImages([])
     } catch (error) {
       console.error('Error sending to backend:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-      alert(`Error: ${errorMessage}\n\nMake sure:\n1. Flask server is running (python programAPI.py)\n2. You have set GEMINI_API_KEY`)
+      alert(`Error: ${errorMessage}\n\nMake sure:\n1. Flask server is running (python backend/start_server.py)\n2. You have set GEMINI_API_KEY`)
     } finally {
       setIsSending(false)
     }
   }
 
-  const sendAudioToBackend = async (audioBlob: Blob) => {
+  const sendAudioToBackend = async (audioBlob: Blob, recorderFormat: RecorderFormat) => {
     const formData = new FormData()
-    formData.append("file", audioBlob, "recording.webm")
+    formData.append('file', audioBlob, `recording.${recorderFormat.extension}`)
 
     try {
-      console.log("Sending audio to backend for transcription...")
-      const response = await fetch("http://127.0.0.1:5000/voice-to-text", {
-        method: "POST",
+      const voiceToTextUrl = buildApiUrl('/voice-to-text')
+      console.log('Sending audio to backend for transcription...', voiceToTextUrl)
+      const response = await fetch(voiceToTextUrl, {
+        method: 'POST',
         body: formData,
       })
 
-      const data = await response.json()
+      const data = await parseJsonResponse<VoiceToTextResponse>(response)
       if (response.ok) {
-        console.log("Transcription:", data.text)
-        setTranscription(data.text)
+        const transcriptText = (data?.user_input_text || data?.text || '').trim()
+        console.log('Transcription:', transcriptText)
+        setTranscription(transcriptText || 'No speech detected from the latest recording.')
       } else {
-        console.error("Transcription Error:", data.error)
+        const backendError = data?.error || 'Unknown transcription error'
+        console.error('Transcription Error:', backendError)
+        setTranscription(`Transcription failed: ${backendError}`)
       }
     } catch (error) {
-      console.error("Failed to connect to backend:", error)
+      console.error('Failed to connect to backend:', error)
+      setTranscription('Transcription failed: unable to connect to backend.')
     }
   }
 
   return (
-    <div 
-      className="app" 
+    <div
+      className="app"
       onClick={() => {
         if (audioContextRef.current?.state === 'suspended') {
-          audioContextRef.current.resume()
-          console.log("AudioContext resumed by user interaction!")
+          void audioContextRef.current.resume()
+          console.log('AudioContext resumed by user interaction!')
         }
       }}
     >
-
+      
       <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
           <div style={{
