@@ -6,3 +6,4 @@ backend/ApiScripts/__pycache__/*
 */.vite/*
 .gitignore
 
+*/__pycache__/**
