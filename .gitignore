@@ -3,6 +3,6 @@
 settings.json
 */__pycache__/*
 backend/promptScripts/__pycache__/*
-\
+/.vite
 .gitignore
 __pycache__/keys.cpython-313.pyc
