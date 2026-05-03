@@ -20,8 +20,8 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from ApiScripts.diagramPrompt import MainPromptMixin
-from ApiScripts.mainPrompt import SecondPromptMixin
+from ApiScripts.mainPrompt import MainPromptMixin
+from ApiScripts.diagramPrompt import DiagramPromptMixin
 from ApiScripts.textToVoice import TTSMixin
 from ApiScripts.updatePrompt import StateUpdateMixin
 from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
@@ -58,6 +58,17 @@ class FakeModels:
             return SimpleNamespace(
                 text=None,
                 parts=[SimpleNamespace(text=None, inline_data=inline_data)],
+            )
+
+        if "IMAGE" in response_modalities:
+            inline_data = SimpleNamespace(data=PNG_BYTES, mime_type="image/png")
+            response_text = f"fake diagram from {model}"
+            return SimpleNamespace(
+                text=response_text,
+                parts=[
+                    SimpleNamespace(text=response_text, inline_data=None),
+                    SimpleNamespace(text=None, inline_data=inline_data),
+                ],
             )
 
         response_text = f"fake response from {model}"
@@ -132,13 +143,14 @@ def _assert_non_empty_response(result: dict[str, str | int | list[str] | None], 
     return response_text
 
 
-class PromptHarness(MainPromptMixin, StateUpdateMixin, TTSMixin):
+class PromptHarness(MainPromptMixin, DiagramPromptMixin, StateUpdateMixin, TTSMixin):
     def __init__(self, task_states_dir: Path, output_dir: Path, *, use_real_client: bool = False):
         self.text_model = TEXT_MODEL if use_real_client else "fake-text-model"
         self.vision_model = VISION_MODEL if use_real_client else "fake-vision-model"
         self.voice_model = VOICE_MODEL if use_real_client else "fake-voice-model"
         self.voice_name = DEFAULT_VOICE_NAME
         self.output_dir = output_dir
+        self.diagram_output_dir = output_dir.parent / "generated_diagrams"
         self.task_states_dir = task_states_dir
         self.client = None if use_real_client else FakeClient()
         self.use_real_client = use_real_client
@@ -219,20 +231,13 @@ def test_prompt_1_run_first_prompt(args: argparse.Namespace) -> dict[str, str]:
 
 
 def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
-    second_prompt_module = importlib.import_module("ApiScripts.mainPrompt")
-    second_prompt_mixin = getattr(second_prompt_module, "SecondPromptMixin", None)
-    if second_prompt_mixin is None or not hasattr(second_prompt_mixin, "run_second_prompt"):
-        raise SkipTest("ApiScripts.mainPrompt does not define SecondPromptMixin.run_second_prompt yet.")
-
-    prompt_two_harness_class = type("PromptTwoHarness", (second_prompt_mixin, PromptHarness), {})
-
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         image_path = root / "diagram.png"
         _write_png(image_path)
         _seed_task(root, "task1", "current task state")
 
-        harness = prompt_two_harness_class(
+        harness = PromptHarness(
             task_states_dir=root,
             output_dir=root / "generated_audio",
             use_real_client=args.real,
@@ -253,8 +258,21 @@ def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
 
         _assert_non_empty_response(result, real_mode=args.real)
 
+        diagram_path_value = result.get("diagram_image_path")
+        if not diagram_path_value:
+            raise AssertionError("run_second_prompt must include diagram_image_path.")
+
+        diagram_path = Path(str(diagram_path_value))
+        if not diagram_path.exists():
+            raise AssertionError("run_second_prompt diagram_image_path does not exist on disk.")
+
+        diagram_mime_type = str(result.get("diagram_mime_type") or "")
+        if not diagram_mime_type.startswith("image/"):
+            raise AssertionError(f"Unexpected diagram MIME type: {diagram_mime_type}")
+
         return {
-            "result_keys": ", ".join(sorted(str(key) for key in result.keys())) or "<empty>",
+            "diagram_image_path": str(diagram_path),
+            "diagram_mime_type": diagram_mime_type,
         }
 
 

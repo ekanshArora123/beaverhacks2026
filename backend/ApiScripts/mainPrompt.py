@@ -21,7 +21,37 @@ from google import genai
 from google.genai import types
 
 
-class SecondPromptMixin:
+class MainPromptMixin:
+    def run_first_prompt(
+        self,
+        image_paths: Sequence[str | Path],
+        text_source_1: str = "",
+        text_source_2: str = "",
+        task_name: str | int | None = None,
+        mode: str = "text",
+        prompt_text: str | None = None,
+        text_model: str | None = None,
+        vision_model: str | None = None,
+        voice_model: str | None = None,
+    ) -> dict[str, str | int | list[str] | None]:
+        # Prompt 1 is the technician instruction stage.
+        return self.generate(
+            image_paths=image_paths,
+            prompt_number=1,
+            text_source_1=text_source_1,
+            text_source_2=text_source_2,
+            mode=mode,
+            prompt_text=prompt_text,
+            task_name=task_name,
+            text_model=text_model,
+            vision_model=vision_model,
+            voice_model=voice_model,
+        )
+
+
+class SecondPromptMixin(MainPromptMixin):
+    """Backward-compatible alias for older imports."""
+
     def run_second_prompt(
         self,
         first_prompt_response: str,
@@ -35,31 +65,22 @@ class SecondPromptMixin:
         vision_model: str | None = None,
         voice_model: str | None = None,
     ) -> dict[str, str | int | list[str] | None]:
-        combined_source_1 = self._combine_sources(
-            ("First prompt response", first_prompt_response),
-            ("Additional context", text_source_1),
+        merged_context = "\n\n".join(
+            section
+            for section in [first_prompt_response.strip(), text_source_1.strip()]
+            if section
         )
-        return self.generate(
+        return self.run_first_prompt(
             image_paths=image_paths or [],
-            prompt_number=2,
-            text_source_1=combined_source_1,
+            text_source_1=merged_context,
             text_source_2=text_source_2,
+            task_name=task_name,
             mode=mode,
             prompt_text=prompt_text,
-            task_name=task_name,
             text_model=text_model,
             vision_model=vision_model,
             voice_model=voice_model,
         )
-
-    @staticmethod
-    def _combine_sources(*sections: tuple[str, str]) -> str:
-        formatted_sections = [
-            f"{label}:\n{value.strip()}"
-            for label, value in sections
-            if value and value.strip()
-        ]
-        return "\n\n".join(formatted_sections)
 
 
 # ── Stand-in path constants (update to match your environment) ────────────────
@@ -264,21 +285,57 @@ def send_api(prompt: str, files: list) -> str:
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
-def run_second_prompt(
-    user_message: str,
-    schematic_image_paths: list[str],
+def run_main_prompt(
+    audio_bytes: bytes | None = None,
+    audio_mime_type: str = "audio/webm",
+    schematic_image_paths: list[str] | None = None,
     user_image_paths: list[str] | None = None,
     machine_info: str = "",
     previous_context: str = "",
 ) -> str:
     """
-    Orchestrates the second prompt: uploads images, builds prompt, calls API.
+    Orchestrates the main prompt: transcribes audio, uploads images, builds
+    prompt, calls API.
 
-    Returns the AI's text response (intended to be spoken to the technician).
+    Parameters
+    ----------
+    audio_bytes : bytes | None
+        Raw audio data from the technician's microphone.  If provided, the
+        audio is transcribed to text in-memory via
+        ``voiceToText.transcribe_audio_bytes`` (no temp files).
+        If *None*, a default message is used.
+    audio_mime_type : str
+        MIME type of the audio (e.g. ``"audio/webm"``, ``"audio/ogg"``).
+    schematic_image_paths : list[str] | None
+        Paths to schematic / reference images for the machine.
+    user_image_paths : list[str] | None
+        Paths to photos the technician captured of the current situation.
+    machine_info : str
+        Short description of the machine the technician is working on.
+    previous_context : str
+        Summary text of prior interactions / documented experience.
+
+    Returns
+    -------
+    str
+        The AI's text response (intended to be spoken to the technician).
     """
+    try:
+        from voiceToText import transcribe_audio_bytes
+    except ImportError:
+        from .voiceToText import transcribe_audio_bytes
+
+    schematic_image_paths = schematic_image_paths or []
     user_image_paths = user_image_paths or []
 
     client = _get_client()
+
+    # --- Transcribe audio to text (entirely in-memory) ----------------------
+    if audio_bytes:
+        user_message = transcribe_audio_bytes(client, audio_bytes, audio_mime_type)
+    else:
+        user_message = "No voice message was provided. Please analyze the images and machine information."
+
     file_objects, schematic_names, user_image_names = prepare_files(
         client, schematic_image_paths, user_image_paths
     )
@@ -295,6 +352,25 @@ def run_second_prompt(
     return response_text
 
 
+def run_second_prompt(
+    audio_bytes: bytes | None = None,
+    audio_mime_type: str = "audio/webm",
+    schematic_image_paths: list[str] | None = None,
+    user_image_paths: list[str] | None = None,
+    machine_info: str = "",
+    previous_context: str = "",
+) -> str:
+    """Backward-compatible alias for older scripts."""
+    return run_main_prompt(
+        audio_bytes=audio_bytes,
+        audio_mime_type=audio_mime_type,
+        schematic_image_paths=schematic_image_paths,
+        user_image_paths=user_image_paths,
+        machine_info=machine_info,
+        previous_context=previous_context,
+    )
+
+
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
@@ -306,9 +382,8 @@ def main():
         os.path.join(USER_IMAGE_DIR, "current_issue.jpg"),
     ]
 
-    response = run_second_prompt(
-        user_message="The motor is making a grinding noise when I try to start it up. "
-                     "I checked the belt and it looks fine but I'm not sure what else to look at.",
+    response = run_main_prompt(
+        audio_bytes=None,  # provide raw audio bytes here for testing
         schematic_image_paths=test_schematics,
         user_image_paths=test_user_images,
         machine_info="Prusa MK4S 3D Printer, Serial: PM4S-2024-00847",
