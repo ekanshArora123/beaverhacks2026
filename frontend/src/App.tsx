@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import SessionPairingPanel, { type PairingState } from './SessionPairingPanel'
+import { getProgramApiBaseUrl } from './api/programApiBase'
 import { createSession, pollSessionPending, type PhonePayload } from './api/session'
 
 interface CapturedImage {
@@ -34,23 +35,6 @@ interface PhonePayloadInputs {
 type DiagramSource = 'user' | 'schematic'
 
 const DEFAULT_ANALYZE_PROMPT = 'Analyze this image and describe what you see.'
-const BACKEND_PORT = '5000'
-
-function deriveApiBaseUrl(): string {
-  const configured = (import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim()
-  if (configured) {
-    return configured.replace(/\/+$/, '')
-  }
-
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const { protocol, hostname } = window.location
-    return `${protocol}//${hostname}:${BACKEND_PORT}`
-  }
-
-  return `http://127.0.0.1:${BACKEND_PORT}`
-}
-
-const PROGRAM_API_BASE_URL = deriveApiBaseUrl()
 
 const RECORDER_FORMAT_CANDIDATES: RecorderFormat[] = [
   { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },
@@ -76,7 +60,7 @@ const SCHEMATIC_IMAGE_PATHS = configuredSchematicPaths.length > 0
 
 function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return `${PROGRAM_API_BASE_URL}${normalizedPath}`
+  return `${getProgramApiBaseUrl()}${normalizedPath}`
 }
 
 function resolveRecorderFormat(): RecorderFormat {

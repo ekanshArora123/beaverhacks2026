@@ -717,6 +717,38 @@ h2 {
   color: #d6b48a;
 }
 
+.pairing-ip-row {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  text-align: left;
+}
+
+.pairing-ip-row label {
+  font-size: 0.78rem;
+  color: #95a5a6;
+}
+
+.pairing-ip-select {
+  background: #1a2128;
+  color: #f5f7f9;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.pairing-code-inline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 0.12rem 0.35rem;
+  border-radius: 4px;
+}
+
 .phone-sending-banner {
   margin-top: 1rem;
   padding: 0.75rem 1rem;

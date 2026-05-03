@@ -1,3 +1,5 @@
+import { getProgramApiBaseUrl } from './programApiBase'
+
 export interface PhonePayload {
   image_data_urls: string[]
   audio_data_url: string | null
@@ -8,27 +10,9 @@ export interface PhonePayload {
   received_at: number
 }
 
-const BACKEND_PORT = '5000'
-
-function deriveApiBaseUrl(): string {
-  const configured = (import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim()
-  if (configured) {
-    return configured.replace(/\/+$/, '')
-  }
-
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const { protocol, hostname } = window.location
-    return `${protocol}//${hostname}:${BACKEND_PORT}`
-  }
-
-  return `http://127.0.0.1:${BACKEND_PORT}`
-}
-
-const PROGRAM_API_BASE_URL = deriveApiBaseUrl()
-
 function buildSessionUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return `${PROGRAM_API_BASE_URL}${normalizedPath}`
+  return `${getProgramApiBaseUrl()}${normalizedPath}`
 }
 
 export interface HostInfo {

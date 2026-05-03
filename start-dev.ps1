@@ -2,17 +2,20 @@ param(
     [switch]$DryRun,
     [switch]$SeparateWindows,
     [switch]$SingleTerminal,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$DevHttps
 )
 
-$repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+# $PSScriptRoot is reliable when running the .ps1 file; fall back for unusual invocation modes.
+$repoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $frontendDir = Join-Path $repoRoot "frontend"
 $backendScript = Join-Path $repoRoot "backend\start_server.py"
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $keysEnvFile = Join-Path $repoRoot "keys.env"
 $frontendHost = "localhost"
 $frontendPort = 5173
-$frontendUrl = "http://$frontendHost`:$frontendPort"
+$frontendScheme = if ($DevHttps) { "https" } else { "http" }
+$frontendUrl = "${frontendScheme}://${frontendHost}:${frontendPort}"
 $defaultComSpec = Join-Path $env:SystemRoot "System32\cmd.exe"
 
 function Wait-ForTcpPort {
@@ -140,7 +143,12 @@ if (-not $env:GEMINI_API_KEY) {
 }
 
 $backendCommand = "& { Set-Location -LiteralPath '$repoRoot'; & '$pythonExecutable' '$backendScript' }"
-$frontendViteCommand = if ($NoBrowser) { "npx vite" } else { "npx vite --open" }
+$viteTail = if ($NoBrowser) { "npx vite" } else { "npx vite --open" }
+$viteEnvLine = "`$env:VITE_DISABLE_HMR='true'"
+if ($DevHttps) {
+    $viteEnvLine += "; `$env:VITE_DEV_HTTPS='true'"
+}
+$frontendViteCommand = "$viteEnvLine; $viteTail"
 $frontendCommand = "& { Set-Location -LiteralPath '$frontendDir'; if (-not `$env:ComSpec) { `$env:ComSpec = '$defaultComSpec' }; $frontendViteCommand }"
 
 if ($SingleTerminal -and $SeparateWindows) {
@@ -165,6 +173,8 @@ if ($DryRun) {
     Write-Host "Shell executable: $shellExecutable"
     Write-Host "GEMINI_API_KEY source: $geminiKeySource"
     Write-Host "Frontend URL: $frontendUrl"
+    Write-Host "Dev HTTPS (phone camera on LAN): $(if ($DevHttps) { 'yes' } else { 'no - use -DevHttps or npm run dev:https for that' })"
+    Write-Host "VITE_DISABLE_HMR: true (better phone / LAN loading)"
     Write-Host "Auto-open browser: $(if ($NoBrowser) { 'Disabled' } else { 'Enabled' })"
     Write-Host "Backend command: $backendCommand"
     Write-Host "Frontend command: $frontendCommand"
@@ -195,6 +205,8 @@ if (-not $useSingleTerminal) {
     Write-Host "Started backend and frontend in separate PowerShell windows."
     Write-Host "Backend PID: $($backendProcess.Id)"
     Write-Host "Frontend PID: $($frontendProcess.Id)"
+    Write-Host "Phone pairing: VITE_DISABLE_HMR=true. For Android camera/mic over LAN use -DevHttps or npm run dev:https (HTTPS)."
+    Write-Host "If the phone still cannot load: scripts\\allow-dev-ports-firewall.ps1 as Administrator once."
 
     exit 0
 }
@@ -207,11 +219,16 @@ $backendJob = Start-Job -Name "beaverhacks-backend" -ScriptBlock {
 
 Write-Host "Backend started in background job $($backendJob.Id)."
 Write-Host "Frontend is starting in the current terminal. Press Ctrl+C to stop both."
+Write-Host "VITE_DISABLE_HMR=true (phone-friendly). Firewall: scripts\\allow-dev-ports-firewall.ps1 as Admin if needed."
 
 try {
     Set-Location -LiteralPath $frontendDir
     if (-not $env:ComSpec) {
         $env:ComSpec = $defaultComSpec
+    }
+    $env:VITE_DISABLE_HMR = 'true'
+    if ($DevHttps) {
+        $env:VITE_DEV_HTTPS = 'true'
     }
     if ($NoBrowser) {
         npx vite
