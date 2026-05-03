@@ -14,16 +14,16 @@ Build the backend prompt flow so the task pipeline is clear and each prompt scri
 1. `voiceToText.py`
 	Convert the user's speech to text.
 	Input: user's speech.
-	Output: text.
+	Output: user text.
 
 2. `mainPrompt.py`
 	Make the text instruction.
-	Inputs: schematic image, user image, context text, task status text, and any user input text.
+	Inputs: (schematic image, user image, context text, task status text, user text) = input1
 	Output: the text response that explains what should be done.
 
 3. `diagramPrompt.py`
 	Create the schematic diagram.
-	Input: text returned from `mainPrompt.py`.
+	Input: input1 + (text returned from `mainPrompt.py`) = input2
 	Output: diagram image.
 
 4. `textToSpeech.py`
