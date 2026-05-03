@@ -22,36 +22,36 @@ def _load_repo_key() -> str | None:
 GEMINI_KEY = _load_repo_key()
 
 try:
-	from .config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+	from .ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 except ImportError:
-	from config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+	from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
-	from .promptScripts.mainPrompt import MainPromptMixin
+	from .ApiScripts.diagramPrompt import MainPromptMixin
 except ImportError:
-	from promptScripts.mainPrompt import MainPromptMixin
+	from ApiScripts.diagramPrompt import MainPromptMixin
 
 try:
-	from .promptScripts.secondPrompt import SecondPromptMixin
+	from .ApiScripts.mainPrompt import SecondPromptMixin
 except ImportError:
-	from promptScripts.secondPrompt import SecondPromptMixin
+	from ApiScripts.mainPrompt import SecondPromptMixin
 
 try:
-	from .promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from .ApiScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
 except ImportError:
-	from promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from ApiScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
 
 try:
-	from .promptScripts.thirdPrompt import TTSMixin
+	from .ApiScripts.textToVoice import TTSMixin
 except ImportError:
-	from promptScripts.thirdPrompt import TTSMixin
+	from ApiScripts.textToVoice import TTSMixin
 
 
 def load_api_key() -> str:
 	api_key = os.environ.get("GEMINI_API_KEY") or GEMINI_KEY
 	if not api_key:
 		raise RuntimeError(
-			"Set GEMINI_API_KEY or define GEMINI_KEY in AIBackend/keys.py before running the backend."
+			"Set GEMINI_API_KEY or define GEMINI_KEY in keys.py before running the backend."
 		)
 	return api_key
 

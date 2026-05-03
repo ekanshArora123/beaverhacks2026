@@ -1,7 +1,7 @@
 """Main multimodal generation flow.
 
-Prompt 1 takes the schematic image, user image, diagram image, context text, and input text
-for the the second Gemini call.
+Prompt 2: Diagram prompt takes all the previous context plus a user update and persists the current
+task state as plain text. Meant to run after mainPrompt.
 """
 
 import time
@@ -10,11 +10,6 @@ from typing import Literal, Sequence
 
 from google import genai
 from google.genai import types
-
-try:
-	from . import prompt as prompt_module
-except ImportError:
-	import promptScripts.prompt as prompt_module
 
 
 SUPPORTED_IMAGE_SUFFIXES = {
@@ -25,6 +20,18 @@ SUPPORTED_IMAGE_SUFFIXES = {
 	".gif",
 }
 ResponseMode = Literal["text", "voice"]
+DEFAULT_PROMPTS = {
+	1: (
+		"You are reviewing technician context and attached images to identify the current issue. "
+		"Summarize the likely problem clearly, call out the most relevant visual evidence, and give "
+		"the next concrete action the technician should take."
+	),
+	2: (
+		"You are continuing the technician workflow after the first prompt response. Use the previous "
+		"prompt result, the saved task state, and any new user update to produce the next concise "
+		"instruction for the technician."
+	),
+}
 
 
 def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.File:
@@ -66,11 +73,11 @@ class MainPromptMixin:
 		)
 
 	def get_prompt(self, prompt_number: int) -> str:
-		prompt_name = f"PROMPT{prompt_number}"
-		prompt_value = getattr(prompt_module, prompt_name, None)
-		if not isinstance(prompt_value, str) or not prompt_value.strip():
-			raise ValueError(f"{prompt_name} is not defined in prompt.py.")
-		return prompt_value.strip()
+		default_prompt = DEFAULT_PROMPTS.get(prompt_number)
+		if default_prompt:
+			return default_prompt
+
+		raise ValueError(f"PROMPT{prompt_number} is not defined.")
 
 	def generate_for_task(
 		self,
