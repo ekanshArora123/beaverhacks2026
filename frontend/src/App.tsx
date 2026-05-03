@@ -14,13 +14,6 @@ interface AnalyzeResponse {
   error?: string
 }
 
-interface VoiceToTextResponse {
-  text?: string
-  user_input_text?: string
-  model?: string
-  error?: string
-}
-
 interface RecorderFormat {
   mimeType: string
   extension: string
@@ -110,14 +103,11 @@ function App() {
           }
         }
 
-        mediaRecorder.onstop = async () => {
-          const activeRecorderFormat = recorderFormatRef.current
-          if (!activeRecorderFormat) {
-            return
-          }
-          const audioBlob = new Blob(audioChunksRef.current, { type: activeRecorderFormat.mimeType })
-          audioChunksRef.current = [] // reset
-          await sendAudioToBackend(audioBlob, activeRecorderFormat)
+        mediaRecorder.onstop = () => {
+          // Audio chunks are accumulated across sessions
+          // They will be sent together with images when user clicks Send
+          const count = audioChunksRef.current.length
+          setTranscription(`Audio recorded (${count} chunk${count !== 1 ? 's' : ''})`)
         }
 
         // --- Automated Voice Activity Detection (VAD) ---
@@ -146,7 +136,7 @@ function App() {
           }
 
           // VOLUME THRESHOLD: Volume ranges from 0 to 255.
-          const THRESHOLD = 10
+          const THRESHOLD = 20
 
           if (maxVolume > THRESHOLD) {
             // User is speaking
@@ -158,7 +148,7 @@ function App() {
                 }
                 mediaRecorder.start()
                 setIsRecording(true)
-                setTranscription("Listening...")
+                setTranscription("Recording audio...")
               }
             }
             // Clear any pending silence timeout because they are still talking
@@ -173,9 +163,8 @@ function App() {
               silenceTimer = setTimeout(() => {
                 isSpeaking = false
                 if (mediaRecorder.state === "recording") {
-                  mediaRecorder.stop() // Triggers mediaRecorder.onstop -> sendAudioToBackend
+                  mediaRecorder.stop() // Stops recording, accumulates chunks
                   setIsRecording(false)
-                  setTranscription("Thinking...")
                 }
               }, 2000)
             }
@@ -294,6 +283,17 @@ function App() {
       const formData = new FormData()
       formData.append('file', imageBlob, 'capture.png')
       formData.append('prompt', getAnalysisPrompt())
+
+      // Append accumulated audio if available
+      if (audioChunksRef.current.length > 0 && recorderFormatRef.current) {
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorderFormatRef.current.mimeType })
+        formData.append('audio', audioBlob, `recording.${recorderFormatRef.current.extension}`)
+        console.log('Sending audio:', {
+          size: audioBlob.size,
+          type: audioBlob.type,
+          chunks: audioChunksRef.current.length
+        })
+      }
       
       // Call backend
       const analyzeUrl = buildApiUrl('/analyze')
@@ -325,40 +325,14 @@ function App() {
       alert(`Analysis: ${result?.text || 'No response'}`)
 
       setCapturedImages([])
+      audioChunksRef.current = [] // Reset accumulated audio
+      setTranscription('') // Clear transcription after successful send
     } catch (error) {
       console.error('Error sending to backend:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
       alert(`Error: ${errorMessage}\n\nMake sure:\n1. Flask server is running (python backend/start_server.py)\n2. You have set GEMINI_API_KEY`)
     } finally {
       setIsSending(false)
-    }
-  }
-
-  const sendAudioToBackend = async (audioBlob: Blob, recorderFormat: RecorderFormat) => {
-    const formData = new FormData()
-    formData.append('file', audioBlob, `recording.${recorderFormat.extension}`)
-
-    try {
-      const voiceToTextUrl = buildApiUrl('/voice-to-text')
-      console.log('Sending audio to backend for transcription...', voiceToTextUrl)
-      const response = await fetch(voiceToTextUrl, {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await parseJsonResponse<VoiceToTextResponse>(response)
-      if (response.ok) {
-        const transcriptText = (data?.user_input_text || data?.text || '').trim()
-        console.log('Transcription:', transcriptText)
-        setTranscription(transcriptText || 'No speech detected from the latest recording.')
-      } else {
-        const backendError = data?.error || 'Unknown transcription error'
-        console.error('Transcription Error:', backendError)
-        setTranscription(`Transcription failed: ${backendError}`)
-      }
-    } catch (error) {
-      console.error('Failed to connect to backend:', error)
-      setTranscription('Transcription failed: unable to connect to backend.')
     }
   }
 
@@ -390,7 +364,7 @@ function App() {
 
         {transcription && (
           <div style={{ padding: '15px', backgroundColor: '#2c3e50', color: 'white', borderRadius: '5px', textAlign: 'left' }}>
-            <strong>Status / AI Heard:</strong> {transcription}
+            <strong>Audio Status:</strong> {transcription}
           </div>
         )}
       </div>
