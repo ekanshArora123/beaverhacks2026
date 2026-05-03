@@ -29,7 +29,10 @@ function MobileCapturePage() {
   const [textInput, setTextInput] = useState<string>('')
   const [showText, setShowText] = useState<boolean>(false)
 
-  const capture = useCaptureSession({ facingMode: 'environment', enabled: code.length > 0 })
+  const capture = useCaptureSession({
+    facingMode: 'environment',
+    enabled: code.length > 0,
+  })
 
   useEffect(() => {
     if (code) {
@@ -102,6 +105,10 @@ function MobileCapturePage() {
     }
   }
 
+  const mediaBlocked = !!capture.webcamError
+  const controlsDisabled = !capture.isMediaReady || mediaBlocked
+  const micDisabled = controlsDisabled || !capture.microphoneAvailable
+
   if (!code) {
     return (
       <div className="mobile-app">
@@ -133,9 +140,40 @@ function MobileCapturePage() {
         <span className="mobile-session-code">{code}</span>
       </header>
 
+      {capture.insecureContextWarning && (
+        <p className="mobile-insecure-banner">
+          Camera is blocked on insecure HTTP. Use <strong>npm run dev:https</strong> or an ngrok HTTPS URL, then reopen this page.
+        </p>
+      )}
+
       <div className="mobile-video-wrap">
-        {capture.webcamError ? (
-          <div className="mobile-error">{capture.webcamError}</div>
+        {mediaBlocked ? (
+          <div className="mobile-error-panel">
+            <div className="mobile-error">{capture.webcamError}</div>
+            <button
+              type="button"
+              className="mobile-retry-media"
+              disabled={capture.isRequestingMedia}
+              onClick={() => void capture.requestMedia()}
+            >
+              {capture.isRequestingMedia ? 'Trying…' : 'Retry camera & mic'}
+            </button>
+          </div>
+        ) : !capture.isMediaReady ? (
+          <div className="mobile-media-primer">
+            <p className="mobile-media-primer-text">
+              Chrome on Android usually requires you to tap a button before it will ask for camera and microphone access
+              — automatic requests when the page opens are blocked.
+            </p>
+            <button
+              type="button"
+              className="mobile-primary-button mobile-media-open"
+              disabled={capture.isRequestingMedia}
+              onClick={() => void capture.requestMedia()}
+            >
+              {capture.isRequestingMedia ? 'Opening camera…' : 'Turn on camera & microphone'}
+            </button>
+          </div>
         ) : (
           <video
             ref={capture.videoRef}
@@ -147,6 +185,12 @@ function MobileCapturePage() {
         )}
         {capture.isRecording && <div className="mobile-recording-overlay" />}
       </div>
+
+      {capture.isMediaReady && capture.micOnlyBlockedHint && (
+        <p className="mobile-mic-hint">
+          Microphone not available (often with dev HTTPS on Android). Camera and photos still work; use text for notes, or try an ngrok HTTPS link for full audio.
+        </p>
+      )}
 
       <div className="mobile-thumb-strip">
         {capture.capturedImages.length === 0 ? (
@@ -169,14 +213,15 @@ function MobileCapturePage() {
         <button
           className="mobile-shutter"
           onClick={capture.captureImage}
-          disabled={!!capture.webcamError}
+          disabled={controlsDisabled}
         >
           📷
         </button>
         <button
-          className={`mobile-mic ${capture.isRecording ? 'mobile-mic-recording' : ''} ${capture.hasAudioRecording ? 'mobile-mic-ready' : ''}`}
+          className={`mobile-mic ${capture.isRecording ? 'mobile-mic-recording' : ''} ${capture.hasAudioRecording ? 'mobile-mic-ready' : ''} ${micDisabled && capture.isMediaReady ? 'mobile-mic-disabled' : ''}`}
           onClick={capture.toggleRecording}
-          disabled={!!capture.webcamError}
+          disabled={micDisabled}
+          title={!capture.microphoneAvailable && capture.isMediaReady ? 'Microphone not granted on this connection' : undefined}
         >
           {capture.isRecording ? '⏹' : '🎤'}
         </button>
@@ -201,7 +246,7 @@ function MobileCapturePage() {
       {capture.hasAudioRecording && !capture.isRecording && (
         <div className="mobile-audio-ready">
           <span>🎙 Audio captured</span>
-          <button onClick={capture.discardAudio} aria-label="Discard audio">✕</button>
+          <button type="button" onClick={capture.discardAudio} aria-label="Discard audio">✕</button>
         </div>
       )}
 

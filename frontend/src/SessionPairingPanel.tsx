@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
+import { fetchNgrokAgentHttpsOrigin } from './api/ngrokAgentTunnels'
 import { fetchHostInfo } from './api/session'
+import { getPairingOriginOverride } from './env/pairing'
 
 export type PairingState = 'idle' | 'creating' | 'waiting' | 'connected' | 'error'
 
@@ -27,9 +29,45 @@ function buildOriginFromHostname(hostname: string): string {
   return `${protocol}//${hostname}${portSuffix}`
 }
 
+function hostnameLooksLikePrivateLanIPv4(hostname: string): boolean {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+    return false
+  }
+  const parts = hostname.split('.').map((p) => Number(p))
+  const [a, b] = parts
+  if (a === undefined || Number.isNaN(a)) {
+    return false
+  }
+  if (b === undefined || Number.isNaN(b)) {
+    return false
+  }
+  if (a === 10) {
+    return true
+  }
+  if (a === 192 && b === 168) {
+    return true
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true
+  }
+  return false
+}
+
+function originUsesPrivateLanIp(origin: string): boolean {
+  try {
+    const { hostname } = new URL(origin)
+    return hostnameLooksLikePrivateLanIPv4(hostname)
+  } catch {
+    return false
+  }
+}
+
 function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: SessionPairingPanelProps) {
   const laptopHostname = typeof window !== 'undefined' ? window.location.hostname : ''
   const laptopUsesLoopback = isLocalhostHostname(laptopHostname)
+  const envTunnelOrigin = useMemo(() => getPairingOriginOverride(), [])
+  const [agentTunnelOrigin, setAgentTunnelOrigin] = useState<string | null>(null)
+  const pairingTunnelOrigin = envTunnelOrigin ?? agentTunnelOrigin
 
   const [resolvedOrigin, setResolvedOrigin] = useState<ResolvedPhoneOrigin>(() => ({
     origin: typeof window !== 'undefined' ? window.location.origin : '',
@@ -37,28 +75,63 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
     suggestedAddresses: [],
   }))
 
-  const [lanProbeDone, setLanProbeDone] = useState(!laptopUsesLoopback)
+  const [lanProbeDone, setLanProbeDone] = useState(() => !laptopUsesLoopback || !!envTunnelOrigin)
   const [qrLanHost, setQrLanHost] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!laptopUsesLoopback) {
-      setResolvedOrigin({
-        origin: window.location.origin,
-        warning: null,
-        suggestedAddresses: [],
-      })
-      setQrLanHost(null)
-      setLanProbeDone(true)
-      return
-    }
-
     let cancelled = false
-    setLanProbeDone(false)
 
     const resolve = async () => {
+      if (envTunnelOrigin) {
+        setAgentTunnelOrigin(null)
+        setResolvedOrigin({
+          origin: envTunnelOrigin,
+          warning: null,
+          suggestedAddresses: [],
+        })
+        setQrLanHost(null)
+        setLanProbeDone(true)
+        return
+      }
+
+      if (!laptopUsesLoopback) {
+        setAgentTunnelOrigin(null)
+        setResolvedOrigin({
+          origin: window.location.origin,
+          warning: null,
+          suggestedAddresses: [],
+        })
+        setQrLanHost(null)
+        setLanProbeDone(true)
+        return
+      }
+
+      setLanProbeDone(false)
+
+      if (import.meta.env.DEV) {
+        const tunnelFromAgent = await fetchNgrokAgentHttpsOrigin()
+        if (cancelled) {
+          return
+        }
+        if (tunnelFromAgent) {
+          setAgentTunnelOrigin(tunnelFromAgent)
+          setResolvedOrigin({
+            origin: tunnelFromAgent,
+            warning: null,
+            suggestedAddresses: [],
+          })
+          setQrLanHost(null)
+          setLanProbeDone(true)
+          return
+        }
+        setAgentTunnelOrigin(null)
+      }
+
       try {
         const info = await fetchHostInfo()
-        if (cancelled) return
+        if (cancelled) {
+          return
+        }
 
         const lanAddresses = info.lan_addresses || []
         if (lanAddresses.length > 0) {
@@ -72,13 +145,15 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
           setResolvedOrigin({
             origin: window.location.origin,
             warning:
-              'No LAN IPv4 found while on localhost — phones cannot reach that. Open this app at the Network URL Vite prints (your PC LAN IP on port 5173), or use a tunnel like ngrok.',
+              'No LAN IPv4 found while on localhost — phones cannot reach that. Open this app at the Network URL Vite prints (your PC LAN IP on port 5173), or use ngrok.',
             suggestedAddresses: [],
           })
           setQrLanHost(null)
         }
       } catch {
-        if (cancelled) return
+        if (cancelled) {
+          return
+        }
         setResolvedOrigin({
           origin: window.location.origin,
           warning:
@@ -87,7 +162,9 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
         })
         setQrLanHost(null)
       } finally {
-        if (!cancelled) setLanProbeDone(true)
+        if (!cancelled) {
+          setLanProbeDone(true)
+        }
       }
     }
 
@@ -95,7 +172,7 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
     return () => {
       cancelled = true
     }
-  }, [laptopUsesLoopback])
+  }, [laptopUsesLoopback, envTunnelOrigin])
 
   if (state === 'idle') {
     return null
@@ -124,9 +201,12 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
   }
 
   const hostnameForQr = qrLanHost ?? laptopHostname
-  const mobileOrigin = buildOriginFromHostname(hostnameForQr)
+  const mobileOrigin = pairingTunnelOrigin ?? buildOriginFromHostname(hostnameForQr)
   const mobileUrl = `${mobileOrigin}/mobile?code=${encodeURIComponent(code)}`
-  const qrWouldUseLoopback = lanProbeDone && isLocalhostHostname(hostnameForQr)
+  const qrWouldUseLoopback =
+    !pairingTunnelOrigin && lanProbeDone && isLocalhostHostname(hostnameForQr)
+  const qrLooksLikeBlockedCampusLan =
+    lanProbeDone && !pairingTunnelOrigin && !qrWouldUseLoopback && originUsesPrivateLanIp(mobileOrigin)
 
   return (
     <div className="pairing-panel">
@@ -135,9 +215,30 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
         <span className="pairing-code">{code}</span>
       </div>
 
+      {pairingTunnelOrigin && (
+        <div className="pairing-status pairing-status-connected">
+          QR uses an <strong>HTTPS tunnel</strong> (works on eduroam — phone talks to the internet, not your laptop LAN). Keep{' '}
+          <code className="pairing-code-inline">ngrok http 5173</code> running.{' '}
+          {envTunnelOrigin ? (
+            <>Origin from <code className="pairing-code-inline">VITE_PAIRING_ORIGIN</code>.</>
+          ) : (
+            <>Auto-detected from the ngrok agent on this PC (localhost:4040). Set <code className="pairing-code-inline">VITE_PAIRING_ORIGIN</code> to override.</>
+          )}{' '}
+          On <strong>ngrok free</strong>, the phone may show a warning first — tap <strong>Visit Site</strong>.
+        </div>
+      )}
+
+      {qrLooksLikeBlockedCampusLan && (
+        <div className="pairing-warning">
+          <strong>Eduroam / many campus networks</strong> block your phone from opening a private LAN IP like this QR
+          (client isolation). Use a tunnel so the QR starts with <code className="pairing-code-inline">https://</code> and a
+          public hostname — run <code className="pairing-code-inline">.\start-dev-ngrok.ps1</code>, wait for the QR to update, then scan again.
+        </div>
+      )}
+
       {!lanProbeDone ? (
         <div className="pairing-status pairing-status-waiting">
-          Looking up a LAN URL for this QR (calling /host-info)…
+          Resolving pairing URL for this QR (ngrok agent on this PC, then LAN via /host-info)...
         </div>
       ) : qrWouldUseLoopback ? (
         <div className="pairing-status pairing-status-error">
@@ -186,9 +287,11 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
       )}
 
       <p className="pairing-hint">
-        Laptop mode: default dev is HTTP (<code className="pairing-code-inline">npm run dev</code>) so the PC webcam works reliably.
-        For Android camera/mic on your LAN IP, run <code className="pairing-code-inline">npm run dev:https</code>, or{' '}
-        <code className="pairing-code-inline">.\start-dev.ps1 -DevHttps</code>. Trust the dev certificate on the laptop too if the webcam stops working there.
+        <strong>Eduroam / phone pairing:</strong> run <code className="pairing-code-inline">.\start-dev-ngrok.ps1</code> so ngrok is up; the pairing QR
+        should show an <code className="pairing-code-inline">https://</code> link (auto-read from ngrok, or set{' '}
+        <code className="pairing-code-inline">VITE_PAIRING_ORIGIN</code> in <code className="pairing-code-inline">frontend/.env.local</code> — see{' '}
+        <code className="pairing-code-inline">frontend/.env.example</code>). LAN-only QR codes usually fail on campus Wi-Fi. On the phone, tap{' '}
+        <strong>Visit Site</strong> if ngrok shows a warning, then turn on camera when asked.
       </p>
     </div>
   )

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import SessionPairingPanel, { type PairingState } from './SessionPairingPanel'
 import { getProgramApiBaseUrl } from './api/programApiBase'
+import { withTunnelFetchInit } from './api/tunnelFetchInit'
 import { createSession, pollSessionPending, type PhonePayload } from './api/session'
 
 interface CapturedImage {
@@ -398,10 +399,10 @@ function App() {
 
       const analyzeUrl = buildApiUrl('/analyze')
       console.log('Calling backend at', analyzeUrl)
-      const apiResponse = await fetch(analyzeUrl, {
+      const apiResponse = await fetch(analyzeUrl, withTunnelFetchInit({
         method: 'POST',
-        body: formData
-      })
+        body: formData,
+      }))
 
       console.log('Response status:', apiResponse.status)
 
