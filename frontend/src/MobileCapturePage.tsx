@@ -209,42 +209,44 @@ function MobileCapturePage() {
         )}
       </div>
 
-      <div className="mobile-controls">
-        <button
-          className="mobile-shutter"
-          onClick={capture.captureImage}
-          disabled={controlsDisabled}
-          type="button"
-        >
-          <span className="mobile-control-label">Photo</span>
-        </button>
-        <button
-          className={`mobile-mic ${capture.isRecording ? 'mobile-mic-recording' : ''} ${capture.hasAudioRecording ? 'mobile-mic-ready' : ''} ${micDisabled && capture.isMediaReady ? 'mobile-mic-disabled' : ''}`}
-          onClick={capture.toggleRecording}
-          disabled={micDisabled}
-          title={!capture.microphoneAvailable && capture.isMediaReady ? 'Microphone not granted on this connection' : undefined}
-          type="button"
-        >
-          <span className="mobile-control-label">{capture.isRecording ? 'Stop' : 'Audio'}</span>
-        </button>
-        <button
-          className={`mobile-text-toggle ${showText ? 'mobile-text-toggle-active' : ''}`}
-          onClick={() => setShowText((previous) => !previous)}
-          type="button"
-        >
-          <span className="mobile-control-label">Text</span>
-        </button>
-      </div>
+      <div className={`mobile-controls-row${showText ? ' mobile-controls-row-expanded' : ''}`}>
+        <div className="mobile-controls">
+          <button
+            className="mobile-shutter"
+            onClick={capture.captureImage}
+            disabled={controlsDisabled}
+            type="button"
+          >
+            <span className="mobile-control-label">Photo</span>
+          </button>
+          <button
+            className={`mobile-mic ${capture.isRecording ? 'mobile-mic-recording' : ''} ${capture.hasAudioRecording ? 'mobile-mic-ready' : ''} ${micDisabled && capture.isMediaReady ? 'mobile-mic-disabled' : ''}`}
+            onClick={capture.toggleRecording}
+            disabled={micDisabled}
+            title={!capture.microphoneAvailable && capture.isMediaReady ? 'Microphone not granted on this connection' : undefined}
+            type="button"
+          >
+            <span className="mobile-control-label">{capture.isRecording ? 'Stop' : 'Audio'}</span>
+          </button>
+          <button
+            className={`mobile-text-toggle ${showText ? 'mobile-text-toggle-active' : ''}`}
+            onClick={() => setShowText((previous) => !previous)}
+            type="button"
+          >
+            <span className="mobile-control-label">Text</span>
+          </button>
+        </div>
 
-      {showText && (
-        <textarea
-          className="mobile-text-input"
-          value={textInput}
-          onChange={(event) => setTextInput(event.target.value)}
-          placeholder="Type a message instead of (or in addition to) audio..."
-          rows={3}
-        />
-      )}
+        {showText && (
+          <textarea
+            className="mobile-text-input"
+            value={textInput}
+            onChange={(event) => setTextInput(event.target.value)}
+            placeholder="Type a message..."
+            rows={3}
+          />
+        )}
+      </div>
 
       {capture.hasAudioRecording && !capture.isRecording && (
         <div className="mobile-audio-ready">

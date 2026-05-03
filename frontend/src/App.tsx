@@ -108,7 +108,6 @@ function App() {
 
   const [isRecording, setIsRecording] = useState(false)
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
-  const [useTextInput, setUseTextInput] = useState(false)
   const [manualTextInput, setManualTextInput] = useState('')
   const [diagramSource, setDiagramSource] = useState<DiagramSource>('user')
 
@@ -196,20 +195,6 @@ function App() {
   const discardAudio = () => {
     audioChunksRef.current = []
     setHasAudioRecording(false)
-  }
-
-  const toggleTextInputMode = () => {
-    const nextUseTextInput = !useTextInput
-    setUseTextInput(nextUseTextInput)
-
-    if (nextUseTextInput) {
-      if (isRecording && mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop()
-      }
-      setIsRecording(false)
-      audioChunksRef.current = []
-      setHasAudioRecording(false)
-    }
   }
 
   const togglePhoneInputMode = () => {
@@ -305,23 +290,18 @@ function App() {
       : manualTextInput.trim()
     const hasManualText = isPhonePayload
       ? manualUserText.length > 0
-      : useTextInput && manualUserText.length > 0
+      : manualUserText.length > 0
 
     const phoneAudioBlob = isPhonePayload ? phoneInputs!.audioBlob : null
     const hasPhoneAudio = isPhonePayload && !!phoneAudioBlob
 
-    const hasLocalAudioPending = !isPhonePayload && !useTextInput && audioChunksRef.current.length > 0
+    const hasLocalAudioPending = !isPhonePayload && audioChunksRef.current.length > 0
     if (selectedUserImages.length === 0 && !hasManualText && !hasPhoneAudio && !hasLocalAudioPending) {
       if (!isPhonePayload) {
         alert('Please provide at least one input: capture an image, record audio, or enter text.')
       } else {
         console.warn('Phone payload arrived empty — skipping send')
       }
-      return
-    }
-
-    if (!isPhonePayload && useTextInput && !hasManualText) {
-      alert('Please enter text before sending, or switch back to audio mode.')
       return
     }
 
@@ -353,7 +333,7 @@ function App() {
         fallbackLimit: USER_IMAGE_FALLBACK_LIMIT,
         schematicCount: SCHEMATIC_IMAGE_PATHS.length,
         diagramSource,
-        inputMode: isPhonePayload ? 'phone' : (useTextInput ? 'text' : 'audio'),
+        inputMode: isPhonePayload ? 'phone' : (hasManualText ? 'text' : 'audio'),
       })
 
       formData.append('diagram_source', diagramSource)
@@ -446,9 +426,7 @@ function App() {
         setCapturedImages([])
         audioChunksRef.current = []
         setHasAudioRecording(false)
-        if (useTextInput) {
-          setManualTextInput('')
-        }
+        setManualTextInput('')
       }
     } catch (error) {
       console.error('Error sending to backend:', error)
@@ -549,7 +527,7 @@ function App() {
   }, [usePhoneInput])
 
   const hasManualText = manualTextInput.trim().length > 0
-  const hasAnyInput = capturedImages.length > 0 || (useTextInput ? hasManualText : hasAudioRecording) || hasAudioRecording
+  const hasAnyInput = capturedImages.length > 0 || hasManualText || hasAudioRecording
   const isSendDisabled = isSending || !hasAnyInput
 
   return (
@@ -638,34 +616,11 @@ function App() {
                   <button
                     className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
                     onClick={toggleRecording}
-                    title={useTextInput ? 'Text mode is active' : (isRecording ? 'Stop Recording' : 'Start Recording')}
-                    disabled={useTextInput}
+                    title={isRecording ? 'Stop Recording' : 'Start Recording'}
                     type="button"
                   >
                     <span className="control-label">{isRecording ? 'Stop' : 'Record'}</span>
                   </button>
-                  <button
-                    className={`input-mode-button webcam-control-button ${useTextInput ? 'input-mode-active' : ''}`}
-                    onClick={toggleTextInputMode}
-                    title={useTextInput ? 'Use audio instead' : 'Use text instead of audio'}
-                    type="button"
-                  >
-                    <span className="control-label">Use Text</span>
-                  </button>
-                </div>
-              )}
-              {useTextInput && (
-                <div className="text-input-panel">
-                  <label htmlFor="manual-input" className="text-input-label">Technician text input</label>
-                  <textarea
-                    id="manual-input"
-                    className="manual-input"
-                    value={manualTextInput}
-                    onChange={(event) => setManualTextInput(event.target.value)}
-                    placeholder="Type what the technician would normally say out loud..."
-                    rows={3}
-                  />
-                  <p className="text-input-hint">Text mode sends this message instead of recorded audio.</p>
                 </div>
               )}
               {/* Audio status indicator below the webcam */}
@@ -688,40 +643,51 @@ function App() {
 
       {/* Thumbnail preview & send controls (laptop capture mode only) */}
       {!usePhoneInput && (
-        <div className="thumbnails-section">
-          {capturedImages.length > 0 && (
-            <div className="thumbnails-container">
-              {capturedImages.map((img) => (
-                <div key={img.id} className="thumbnail-box">
-                  <img src={img.dataUrl} alt="Captured" className="thumbnail" />
-                  <button
-                    className="remove-thumbnail"
-                    onClick={() => removeCapturedImage(img.id)}
-                    title="Remove"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            className="send-button"
-            onClick={() => {
-              void sendToBackend()
-            }}
-            disabled={isSendDisabled}
-          >
-            {isSending
-              ? 'Sending...'
-              : (() => {
-                const parts: string[] = []
-                if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
-                if (useTextInput && hasManualText) parts.push('text')
-                else if (!useTextInput && hasAudioRecording) parts.push('audio')
-                return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
-              })()}
-          </button>
+        <div className="bottom-bar">
+          <div className="thumbnails-section">
+            {capturedImages.length > 0 && (
+              <div className="thumbnails-container">
+                {capturedImages.map((img) => (
+                  <div key={img.id} className="thumbnail-box">
+                    <img src={img.dataUrl} alt="Captured" className="thumbnail" />
+                    <button
+                      className="remove-thumbnail"
+                      onClick={() => removeCapturedImage(img.id)}
+                      title="Remove"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              className="send-button"
+              onClick={() => {
+                void sendToBackend()
+              }}
+              disabled={isSendDisabled}
+            >
+              {isSending
+                ? 'Sending...'
+                : (() => {
+                  const parts: string[] = []
+                  if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
+                  if (hasManualText) parts.push('text')
+                  if (hasAudioRecording) parts.push('audio')
+                  return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
+                })()}
+            </button>
+          </div>
+          <div className="text-input-panel">
+            <textarea
+              id="manual-input"
+              className="manual-input"
+              value={manualTextInput}
+              onChange={(event) => setManualTextInput(event.target.value)}
+              placeholder="Type a message..."
+            />
+          </div>
         </div>
       )}
 

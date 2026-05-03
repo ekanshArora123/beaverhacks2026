@@ -274,6 +274,15 @@
   font-weight: 700;
 }
 
+.mobile-controls-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .mobile-controls {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -287,6 +296,20 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(14px);
+  transition: width 200ms ease, min-width 200ms ease;
+}
+
+.mobile-controls-row-expanded .mobile-controls {
+  width: 50%;
+  min-width: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.mobile-controls-row-expanded .mobile-text-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
 }
 
 .mobile-shutter,
@@ -356,7 +379,7 @@
 
 .mobile-text-input {
   width: 100%;
-  resize: vertical;
+  resize: none;
   min-height: 70px;
   border-radius: 12px;
   padding: 0.75rem 1rem;
