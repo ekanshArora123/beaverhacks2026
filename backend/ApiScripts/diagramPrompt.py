@@ -12,7 +12,6 @@ from typing import Literal, Sequence
 from google import genai
 from google.genai import types
 
-
 SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
 	".jpeg",
@@ -28,8 +27,9 @@ DEFAULT_PROMPTS = {
 		"actionable guidance."
 	),
 	2: (
-		"Create an updated schematic-style diagram image that reflects the main instruction text and the "
-		"current task context. Keep the diagram clear, technical, and directly useful for the next action."
+		"Create a technician-facing annotated image that shows the exact next action. Use strong directional "
+		"arrows, short labels, and diagram-style overlays so the operator can immediately see what to inspect, "
+		"press, loosen, tighten, or replace."
 	),
 }
 GENERATED_DIAGRAMS_DIR = Path(__file__).resolve().parent.parent / "generated_diagrams"
@@ -60,6 +60,7 @@ class DiagramPromptMixin:
 		text_model: str | None = None,
 		vision_model: str | None = None,
 		voice_model: str | None = None,
+		diagram_source: str | None = None,
 	) -> dict[str, str | int | list[str] | None]:
 		if not first_prompt_response or not first_prompt_response.strip():
 			raise ValueError("first_prompt_response is required for prompt 2.")
@@ -71,6 +72,7 @@ class DiagramPromptMixin:
 		)
 		self.prompt_number = 2
 		self.prompt_text = self._resolve_prompt(2, prompt_text)
+		self.diagram_source = self._normalize_diagram_source(diagram_source)
 		self.task_name = self._normalize_task_name(task_name)
 		self.task_status = self._load_task_status(self.task_name) if self.task_name else ""
 		self.task_image_paths = self._load_task_image_paths(self.task_name) if self.task_name else []
@@ -92,6 +94,7 @@ class DiagramPromptMixin:
 			"task_image_paths": [str(image_path) for image_path in self.task_image_paths],
 			"task_name": self.task_name,
 			"task_status": self.task_status or None,
+			"diagram_source": self.diagram_source,
 			"first_prompt_response": first_prompt_response.strip(),
 			"text_source_1": self.text_source_1,
 			"text_source_2": self.text_source_2,
@@ -221,6 +224,17 @@ class DiagramPromptMixin:
 			raise ValueError("prompt_number or prompt_text is required.")
 		return self.get_prompt(prompt_number)
 
+	@staticmethod
+	def _normalize_diagram_source(diagram_source: str | None) -> str:
+		normalized_source = (diagram_source or "user").strip().lower()
+		if normalized_source in {"user", "user_image", "user-photo", "photo"}:
+			return "user"
+		if normalized_source in {"schematic", "schematics", "diagram"}:
+			return "schematic"
+		if normalized_source in {"all", "auto", "mixed"}:
+			return "all"
+		return "user"
+
 	def _normalize_image_paths(self, image_paths: Sequence[str | Path]) -> list[Path]:
 		normalized_paths: list[Path] = []
 		for image_path in image_paths:
@@ -290,6 +304,7 @@ class DiagramPromptMixin:
 		return "\n\n".join(sections)
 
 	def _build_diagram_prompt_payload(self, first_prompt_response: str) -> str:
+		diagram_source = getattr(self, "diagram_source", "user")
 		sections = [f"Prompt:\n{self.prompt_text}"]
 		sections.append(f"Main instruction text:\n{first_prompt_response}")
 		if self.task_name:
@@ -302,8 +317,31 @@ class DiagramPromptMixin:
 			sections.append(f"Latest user update:\n{self.text_source_2}")
 		if self.image_paths:
 			sections.append("Use the provided images as visual references for the updated diagram.")
+
+		if diagram_source == "user":
+			sections.append(
+				"Primary image-editing target: the technician-provided photo. Preserve camera perspective and scene "
+				"details, and overlay guidance on top of that photo."
+			)
+		elif diagram_source == "schematic":
+			sections.append(
+				"Primary image-editing target: the schematic/reference image. Keep the schematic structure intact "
+				"and overlay guidance on top of it."
+			)
+		else:
+			sections.append(
+				"Primary image-editing target: prefer technician photo when available; otherwise use the schematic "
+				"image as the base canvas."
+			)
+
 		sections.append(
-			"Return an IMAGE that clearly visualizes the next technician action. Keep labels concise and technical."
+			"Overlay requirements: add high-contrast arrows pointing at the exact action location, add concise text "
+			"labels near each arrow, and use subtle diagram-style highlights or callout boxes so the next step is "
+			"obvious at a glance."
+		)
+		sections.append(
+			"Return exactly one IMAGE that clearly visualizes the next technician action. Keep labels concise and "
+			"technical, and avoid decorative elements unrelated to the repair step."
 		)
 		return "\n\n".join(sections)
 

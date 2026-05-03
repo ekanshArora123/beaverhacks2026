@@ -100,7 +100,7 @@ h2 {
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.3; }
 }
 
 .video-container {
@@ -123,11 +123,33 @@ h2 {
   object-fit: contain;
 }
 
-.capture-button {
+/* Recording overlay — red border glow around video */
+.recording-overlay {
+  position: absolute;
+  inset: 0;
+  border: 3px solid #e74c3c;
+  border-radius: 12px;
+  pointer-events: none;
+  animation: pulse-border 1.5s ease-in-out infinite;
+  box-shadow: inset 0 0 20px rgba(231, 76, 60, 0.15);
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: #e74c3c; box-shadow: inset 0 0 20px rgba(231, 76, 60, 0.15); }
+  50% { border-color: #ff6b6b; box-shadow: inset 0 0 30px rgba(231, 76, 60, 0.25); }
+}
+
+/* Webcam controls — row of buttons at bottom of video */
+.webcam-controls {
   position: absolute;
   bottom: 1.5rem;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  gap: 0.75rem;
+}
+
+.capture-button {
   padding: 0.75rem 2rem;
   font-size: 1.1rem;
   background: #2196F3;
@@ -142,12 +164,246 @@ h2 {
 
 .capture-button:hover {
   background: #1976D2;
-  transform: translateX(-50%) scale(1.05);
+  transform: scale(1.05);
   box-shadow: 0 6px 16px rgba(33, 150, 243, 0.6);
 }
 
 .capture-button:active {
-  transform: translateX(-50%) scale(0.98);
+  transform: scale(0.98);
+}
+
+/* Mic toggle button */
+.mic-button {
+  padding: 0.75rem 2rem;
+  font-size: 1.1rem;
+  background: #607d8b;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(96, 125, 139, 0.4);
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+.mic-button:hover {
+  background: #546e7a;
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(96, 125, 139, 0.6);
+}
+
+.mic-button:active {
+  transform: scale(0.98);
+}
+
+.mic-button:disabled {
+  background: #b0bec5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.mic-button:disabled:hover {
+  background: #b0bec5;
+  box-shadow: none;
+  transform: none;
+}
+
+.input-mode-button {
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.input-mode-button:hover {
+  background: rgba(0, 0, 0, 0.75);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.input-mode-button.input-mode-active {
+  background: #ff9f1a;
+  border-color: #ff9f1a;
+  color: #1f2933;
+}
+
+.diagram-source-button {
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.diagram-source-button.diagram-source-user {
+  background: #e8f4ff;
+  color: #145588;
+  border-color: #89bde4;
+}
+
+.diagram-source-button.diagram-source-user:hover:not(:disabled) {
+  background: #d7ecff;
+}
+
+.diagram-source-button.diagram-source-schematic {
+  background: #f5ecff;
+  color: #5e3f7a;
+  border-color: #cdb7e7;
+}
+
+.diagram-source-button.diagram-source-schematic:hover:not(:disabled) {
+  background: #efe0ff;
+}
+
+.diagram-source-button:disabled {
+  background: #eceff1;
+  color: #8d9aa5;
+  border-color: #cfd8dc;
+  cursor: not-allowed;
+}
+
+.diagram-source-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #5b6670;
+}
+
+.diagram-source-hint strong {
+  color: #2f3a43;
+}
+
+.text-input-panel {
+  margin-top: 0.6rem;
+  background: #fff7e6;
+  border: 1px solid #ffd6a0;
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.text-input-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #7a3e00;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.manual-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 70px;
+  border: 1px solid #e7b97f;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.92rem;
+  font-family: inherit;
+  color: #2b2b2b;
+  background: #fffdf7;
+  box-sizing: border-box;
+}
+
+.manual-input:focus {
+  outline: none;
+  border-color: #ff9f1a;
+  box-shadow: 0 0 0 2px rgba(255, 159, 26, 0.2);
+}
+
+.text-input-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #8a5a22;
+}
+
+/* When actively recording */
+.mic-button.mic-recording {
+  background: #e74c3c;
+  box-shadow: 0 4px 16px rgba(231, 76, 60, 0.5);
+  animation: mic-pulse 1.5s ease-in-out infinite;
+}
+
+.mic-button.mic-recording:hover {
+  background: #c0392b;
+  box-shadow: 0 6px 20px rgba(231, 76, 60, 0.7);
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(231, 76, 60, 0.5); }
+  50% { box-shadow: 0 4px 24px rgba(231, 76, 60, 0.8); }
+}
+
+/* When audio has been recorded but not yet sent */
+.mic-button.mic-has-audio:not(.mic-recording) {
+  background: #27ae60;
+  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4);
+}
+
+.mic-button.mic-has-audio:not(.mic-recording):hover {
+  background: #219a52;
+  box-shadow: 0 6px 16px rgba(39, 174, 96, 0.6);
+}
+
+/* Audio status bar below webcam */
+.audio-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.audio-status-recording {
+  background: #fdedec;
+  color: #c0392b;
+  border: 1px solid #f5c6cb;
+}
+
+.audio-status-ready {
+  background: #eafaf1;
+  color: #1e8449;
+  border: 1px solid #a9dfbf;
+}
+
+.audio-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.recording-dot {
+  background: #e74c3c;
+  animation: pulse 1s infinite;
+}
+
+.ready-dot {
+  background: #27ae60;
+}
+
+.discard-audio-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #95a5a6;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 0.25rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.discard-audio-btn:hover {
+  color: #e74c3c;
 }
 
 /* Thumbnails Section */

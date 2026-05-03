@@ -8,7 +8,9 @@ backend/__pycache__/*
 */.vite/*
 .gitignore
 *.env
+*.pyc
 *keys.env
 */__pycache__/**
 keys.env
 keys.py
+backend/tests/__pycache__/test_prompt_api.cpython-313.pyc
