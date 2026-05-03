@@ -4,6 +4,11 @@
 
 Build the backend prompt flow so the task pipeline is clear and each prompt script has one job.
 
+## Main files:
+- `backend/AIBackend.py`: TODO
+- `backend/promptScripts/`: folder of all prompt scripts
+	//Do we want to combine voiceToText and textToSpeech into the same file?
+
 ## Prompt Flow
 
 1. `voiceToText.py`
