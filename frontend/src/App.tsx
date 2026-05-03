@@ -435,8 +435,6 @@ function App() {
       if (result?.image) {
         const imageUrl = `data:${result.image_mime || 'image/png'};base64,${result.image}`
         setReturnedImages([imageUrl])
-      } else {
-        setReturnedImages([])
       }
 
       const responseText = result?.first_prompt_response_text || 'No response'
@@ -742,12 +740,12 @@ function App() {
             {isSending
               ? 'Sending...'
               : (() => {
-                  const parts: string[] = []
-                  if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
-                  if (useTextInput && hasManualText) parts.push('text')
-                  else if (!useTextInput && hasAudioRecording) parts.push('audio')
-                  return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
-                })()}
+                const parts: string[] = []
+                if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
+                if (useTextInput && hasManualText) parts.push('text')
+                else if (!useTextInput && hasAudioRecording) parts.push('audio')
+                return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
+              })()}
           </button>
         </div>
       )}
