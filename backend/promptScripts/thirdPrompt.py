@@ -12,6 +12,15 @@ from google.genai import types
 
 
 class TTSMixin:
+	def run_third_prompt(self, instruction_text: str) -> dict[str, str | None]:
+		audio_path, audio_mime_type = self._generate_voice_response(instruction_text)
+		return {
+			"voice_model": self.voice_model,
+			"audio_path": str(audio_path),
+			"audio_mime_type": audio_mime_type,
+			"instruction_text": instruction_text,
+		}
+
 	def _generate_voice_response(self, response_text: str) -> tuple[Path, str]:
 		response = self.get_client().models.generate_content(
 			model=self.voice_model,

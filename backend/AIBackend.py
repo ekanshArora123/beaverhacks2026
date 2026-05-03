@@ -1,16 +1,25 @@
+import importlib.util
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from google import genai
 
-try:
-	from ..keys import GEMINI_KEY
-except ImportError:
-	try:
-		from keys import GEMINI_KEY
-	except ImportError:
-		GEMINI_KEY = None
+def _load_repo_key() -> str | None:
+	keys_path = Path(__file__).resolve().parent.parent / "keys.py"
+	if not keys_path.exists():
+		return None
+
+	spec = importlib.util.spec_from_file_location("workspace_keys", keys_path)
+	if spec is None or spec.loader is None:
+		return None
+
+	keys_module = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(keys_module)
+	return getattr(keys_module, "GEMINI_KEY", None)
+
+
+GEMINI_KEY = _load_repo_key()
 
 try:
 	from .config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
@@ -20,17 +29,22 @@ except ImportError:
 try:
 	from .promptScripts.mainPrompt import MainPromptMixin
 except ImportError:
- 	from AIBackend.promptScripts.mainPrompt import MainPromptMixin
+	from promptScripts.mainPrompt import MainPromptMixin
+
+try:
+	from .promptScripts.secondPrompt import SecondPromptMixin
+except ImportError:
+	from promptScripts.secondPrompt import SecondPromptMixin
 
 try:
 	from .promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
 except ImportError:
-	from AIBackend.promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
 
 try:
-	from .tts import TTSMixin
+	from .promptScripts.thirdPrompt import TTSMixin
 except ImportError:
-	from tts import TTSMixin
+	from promptScripts.thirdPrompt import TTSMixin
 
 
 def load_api_key() -> str:
@@ -43,7 +57,7 @@ def load_api_key() -> str:
 
 
 @dataclass
-class GeminiSequenceBackend(MainPromptMixin, StateUpdateMixin, TTSMixin):
+class GeminiSequenceBackend(MainPromptMixin, SecondPromptMixin, StateUpdateMixin, TTSMixin):
 	text_model: str = TEXT_MODEL
 	vision_model: str = VISION_MODEL
 	voice_model: str = VOICE_MODEL
@@ -66,15 +80,66 @@ class GeminiSequenceBackend(MainPromptMixin, StateUpdateMixin, TTSMixin):
 			self.client = genai.Client(api_key=load_api_key())
 		return self.client
 
+	def run_four_prompts(
+		self,
+		image_paths: list[str | Path],
+		task_name: str | int,
+		text_source_1: str = "",
+		text_source_2: str = "",
+		updated_status: str | None = None,
+		voice_output: bool = True,
+		text_model: str | None = None,
+		vision_model: str | None = None,
+		voice_model: str | None = None,
+	) -> dict[str, object]:
+		first_result = self.run_first_prompt(
+			image_paths=image_paths,
+			text_source_1=text_source_1,
+			text_source_2=text_source_2,
+			task_name=task_name,
+			mode="text",
+			text_model=text_model,
+			vision_model=vision_model,
+			voice_model=voice_model,
+		)
+
+		second_result = self.run_second_prompt(
+			first_prompt_response=str(first_result.get("response_text", "")),
+			task_name=task_name,
+			text_source_1=text_source_1,
+			text_source_2=text_source_2,
+			image_paths=image_paths,
+			mode="text",
+			text_model=text_model,
+			vision_model=vision_model,
+			voice_model=voice_model,
+		)
+
+		third_result = (
+			self.run_third_prompt(str(second_result.get("response_text", ""))) if voice_output else None
+		)
+
+		fourth_result = self.run_fourth_prompt(task_name, updated_status) if updated_status else None
+
+		return {
+			"first_prompt": first_result,
+			"second_prompt": second_result,
+			"third_prompt": third_result,
+			"fourth_prompt": fourth_result,
+		}
+
 
 def main() -> None:
 	print("GeminiSequenceBackend ready.")
 	print("Example call 1:")
 	print(
-		"backend.generate(['image1.png'], prompt_number=1, text_source_1='source a', text_source_2='source b', task_name='task1', mode='text')"
+		"backend.run_first_prompt(['image1.png'], text_source_1='source a', text_source_2='source b', task_name='task1')"
 	)
 	print("Example call 2:")
-	print("backend.generate_for_task(task_name='task1', prompt_number=2, mode='text')")
+	print("backend.run_second_prompt(first_prompt_response='diagram text', task_name='task1')")
+	print("backend.run_third_prompt('instruction text')")
+	print("backend.run_fourth_prompt('task1', 'updated status')")
+	print("backend.run_four_prompts(['image1.png'], task_name='task1', text_source_1='source a')")
 
 
 if __name__ == "__main__":
