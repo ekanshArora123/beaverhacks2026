@@ -14,3 +14,12 @@ backend/__pycache__/*
 keys.env
 keys.py
 backend/tests/__pycache__/test_prompt_api.cpython-313.pyc
+
+# Build output
+frontend/dist/
+
+# Generated artifacts
+backend/generated_diagrams/
+
+# Future-proofing for disk-backed phone sessions
+backend/sessionUploads/
