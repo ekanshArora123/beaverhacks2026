@@ -7,5 +7,5 @@ backend/ApiScripts/__pycache__/*
 backend/__pycache__/*
 */.vite/*
 .gitignore
-
+*keys.env
 */__pycache__/**
