@@ -257,7 +257,6 @@ function App() {
 
   return (
     <div className="app">
-      <h1>AI Media Analyzer</h1>
       
       <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
