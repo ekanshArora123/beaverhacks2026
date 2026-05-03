@@ -9,6 +9,8 @@ and exposes explicit prompt-stage routes (`/prompts/*`) that execute the plan:
 import base64
 import os
 import socket
+import subprocess
+import sys
 import tempfile
 import time
 import traceback
@@ -596,12 +598,87 @@ def run_all_prompts():
         return _json_error_response(exc)
 
 
-def _detect_lan_ipv4_addresses() -> list[str]:
-    """Best-effort enumeration of the host's non-loopback IPv4 addresses.
+def _looks_like_ipv4(addr: str) -> bool:
+    parts = addr.strip().split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        return all(0 <= int(p) <= 255 for p in parts)
+    except ValueError:
+        return False
 
-    Used by the laptop frontend to rewrite the QR pairing URL when the user
-    opened the app on `localhost` (a URL the phone cannot reach).
-    """
+
+def _windows_powershell_ipv4_addresses() -> list[str]:
+    """List IPv4 addresses via PowerShell (Windows often exposes Hyper-V / Docker IPs via UDP heuristic alone)."""
+    if sys.platform != "win32":
+        return []
+    script = (
+        "Get-NetIPAddress -AddressFamily IPv4 "
+        "| Where-Object { $_.IPAddress -notlike '127.*' } "
+        "| Select-Object -ExpandProperty IPAddress"
+    )
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if proc.returncode != 0:
+        return []
+    out: list[str] = []
+    for line in (proc.stdout or "").splitlines():
+        candidate = line.strip()
+        if _looks_like_ipv4(candidate):
+            out.append(candidate)
+    return out
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def _lan_ipv4_rank(ip: str) -> tuple[int, str]:
+    """Prefer typical home Wi‑Fi ranges; deprioritize APIPA, Docker bridge, unknown carriers."""
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return (1000, ip)
+    try:
+        a, b, _, _ = (int(x) for x in parts)
+    except ValueError:
+        return (1000, ip)
+    if a == 127:
+        return (999, ip)
+    if a == 169 and b == 254:
+        return (400, ip)
+    if a == 172 and b == 17:
+        return (350, ip)
+    if a == 192 and b == 168:
+        return (0, ip)
+    if a == 10:
+        return (20, ip)
+    if a == 172 and 16 <= b <= 31:
+        return (80, ip)
+    return (200, ip)
+
+
+def _drop_apipa_if_alternatives_exist(addresses: list[str]) -> list[str]:
+    """Omit 169.254.x.x link-local IPs when we also have routable addresses (less confusing in QR lists)."""
+    without_apipa = [a for a in addresses if not a.startswith("169.254.")]
+    return without_apipa if without_apipa else addresses
+
+
+def _detect_lan_ipv4_addresses() -> list[str]:
+    """Best-effort enumeration of non-loopback IPv4 addresses for phone pairing QR URLs."""
     addresses: list[str] = []
 
     try:
@@ -611,23 +688,26 @@ def _detect_lan_ipv4_addresses() -> list[str]:
             primary_address = outbound_socket.getsockname()[0]
         finally:
             outbound_socket.close()
-        if primary_address and not primary_address.startswith("127."):
+        if primary_address and _looks_like_ipv4(primary_address) and not primary_address.startswith("127."):
             addresses.append(primary_address)
     except OSError:
         pass
+
+    addresses.extend(_windows_powershell_ipv4_addresses())
 
     try:
         host_name = socket.gethostname()
         for info in socket.getaddrinfo(host_name, None, socket.AF_INET):
             candidate = info[4][0]
-            if candidate.startswith("127."):
+            if candidate.startswith("127.") or not _looks_like_ipv4(candidate):
                 continue
-            if candidate not in addresses:
-                addresses.append(candidate)
+            addresses.append(candidate)
     except (OSError, socket.gaierror):
         pass
 
-    return addresses
+    addresses = _dedupe_preserve_order(addresses)
+    addresses.sort(key=_lan_ipv4_rank)
+    return _drop_apipa_if_alternatives_exist(addresses)
 
 
 @app.route("/host-info", methods=["GET"])
@@ -641,8 +721,13 @@ def session_new():
     return jsonify({"code": code})
 
 
+def _normalize_session_code(code: str) -> str:
+    return (code or "").strip().upper()
+
+
 @app.route("/session/<code>/input", methods=["POST"])
 def session_input(code: str):
+    code = _normalize_session_code(code)
     if not sessionStore.session_exists(code):
         return jsonify({"error": "Unknown or expired session code"}), 404
 
@@ -692,6 +777,7 @@ def session_input(code: str):
 
 @app.route("/session/<code>/pending", methods=["GET"])
 def session_pending(code: str):
+    code = _normalize_session_code(code)
     if not sessionStore.session_exists(code):
         return jsonify({"error": "Unknown or expired session code"}), 404
 

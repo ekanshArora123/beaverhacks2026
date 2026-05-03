@@ -130,6 +130,25 @@ class SessionRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_session_code_in_url_is_case_insensitive(self) -> None:
+        """Mobile clients may lowercase the code in the path; server normalizes to uppercase."""
+        code = self._create_session()
+        lower = code.lower()
+        self.assertNotEqual(lower, code)
+
+        post_response = self.client.post(
+            f"/session/{lower}/input",
+            data={"text_source_2": "from mixed-case URL"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(post_response.status_code, 200)
+
+        pending_response = self.client.get(f"/session/{lower}/pending?timeout=2")
+        self.assertEqual(pending_response.status_code, 200)
+        pending_payload = pending_response.get_json()
+        assert pending_payload is not None
+        self.assertEqual(pending_payload.get("text_source_2"), "from mixed-case URL")
+
     def test_input_with_empty_payload_returns_400(self) -> None:
         code = self._create_session()
         response = self.client.post(

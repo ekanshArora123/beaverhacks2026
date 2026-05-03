@@ -5,6 +5,17 @@ import './MobileCapturePage.css'
 
 type SendStatus = 'idle' | 'sending' | 'success' | 'error'
 
+function extensionForPhoneAudio(blob: Blob, recorderExtension: string | undefined): string {
+  if (recorderExtension) {
+    return recorderExtension
+  }
+  const mime = (blob.type || '').toLowerCase()
+  if (mime.includes('ogg')) return 'ogg'
+  if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3'
+  if (mime.includes('mp4') || mime.includes('aac') || mime.includes('m4a')) return 'm4a'
+  return 'webm'
+}
+
 function readCodeFromQuery(): string {
   const params = new URLSearchParams(window.location.search)
   return (params.get('code') || '').trim().toUpperCase()
@@ -64,8 +75,9 @@ function MobileCapturePage() {
         formData.append('files', imageBlob, `phone_capture_${index + 1}.png`)
       }
 
-      if (audioBlob && capture.recorderFormat) {
-        formData.append('audio', audioBlob, `phone_recording.${capture.recorderFormat.extension}`)
+      if (audioBlob) {
+        const ext = extensionForPhoneAudio(audioBlob, capture.recorderFormat?.extension)
+        formData.append('audio', audioBlob, `phone_recording.${ext}`)
       }
 
       if (trimmedText) {
