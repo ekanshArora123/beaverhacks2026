@@ -1,237 +1,281 @@
-"""Main multimodal generation flow.
+"""
+Main Prompt — Technician Assistance
 
-Prompt 1 takes the schematic image, user image, diagram image, context text, and input text
-for the the second Gemini call.
+Takes schematic images, user images, user message (transcribed voice),
+machine info, and previous experience context.
+Builds a prompt for Gemini and sends it via sendAPI.
+Output is spoken-style text guidance for the technician.
 """
 
+from AIAPICall import sendAPI
+import os
 import time
 from pathlib import Path
-from typing import Literal, Sequence
 
 from google import genai
 from google.genai import types
 
+
+# ── Stand-in path constants (update to match your environment) ────────────────
+SCHEMATIC_IMAGE_DIR = r"C:\path\to\schematic\images"
+USER_IMAGE_DIR = r"C:\path\to\user\images"
+
+# ── Gemini client setup ──────────────────────────────────────────────────────
 try:
-	from . import prompt as prompt_module
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from keys import GEMINI_KEY
 except ImportError:
-	import promptScripts.prompt as prompt_module
+    GEMINI_KEY = None
 
 
-SUPPORTED_IMAGE_SUFFIXES = {
-	".jpg",
-	".jpeg",
-	".png",
-	".webp",
-	".gif",
-}
-ResponseMode = Literal["text", "voice"]
+def _get_client() -> genai.Client:
+    api_key = os.environ.get("GEMINI_API_KEY") or GEMINI_KEY
+    if not api_key:
+        raise RuntimeError("Set GEMINI_API_KEY env var or define GEMINI_KEY in keys.py")
+    return genai.Client(api_key=api_key)
 
 
-def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.File:
-	current_file = uploaded_file
-	while getattr(current_file, "state", None) == types.FileState.PROCESSING:
-		time.sleep(2)
-		current_file = client.files.get(name=uploaded_file.name)
+# ── File upload helpers ──────────────────────────────────────────────────────
 
-	if getattr(current_file, "state", None) == types.FileState.FAILED:
-		raise RuntimeError(f"Gemini failed to process {current_file.display_name or uploaded_file.name}.")
+def _upload_file(client: genai.Client, file_path: str, display_name: str) -> types.File:
+    """Upload a single file via the Gemini file API with a descriptive name."""
+    uploaded = client.files.upload(
+        file=Path(file_path),
+        config={"display_name": display_name},
+    )
+    while getattr(uploaded, "state", None) == types.FileState.PROCESSING:
+        time.sleep(2)
+        uploaded = client.files.get(name=uploaded.name)
+    if getattr(uploaded, "state", None) == types.FileState.FAILED:
+        raise RuntimeError(f"Gemini failed to process file: {display_name}")
+    return uploaded
 
-	return current_file
+
+def _assign_names(paths: list[str], prefix: str) -> list[tuple[str, str]]:
+    """Generate (path, display_name) pairs. Single items get no suffix."""
+    if len(paths) == 1:
+        return [(paths[0], prefix)]
+    return [(p, f"{prefix}_{i + 1}") for i, p in enumerate(paths)]
 
 
-class MainPromptMixin:
-	def run_first_prompt(
-		self,
-		image_paths: Sequence[str | Path],
-		text_source_1: str = "",
-		text_source_2: str = "",
-		task_name: str | int | None = None,
-		mode: ResponseMode = "text",
-		prompt_text: str | None = None,
-		text_model: str | None = None,
-		vision_model: str | None = None,
-		voice_model: str | None = None,
-	) -> dict[str, str | int | list[str] | None]:
-		return self.generate(
-			image_paths=image_paths,
-			prompt_number=1,
-			text_source_1=text_source_1,
-			text_source_2=text_source_2,
-			mode=mode,
-			prompt_text=prompt_text,
-			task_name=task_name,
-			text_model=text_model,
-			vision_model=vision_model,
-			voice_model=voice_model,
-		)
+def prepare_files(
+    client: genai.Client,
+    schematic_paths: list[str],
+    user_image_paths: list[str],
+) -> tuple[list[types.File], list[str], list[str]]:
+    """Upload all images and return (file_objects, schematic_names, user_image_names)."""
+    file_objects: list[types.File] = []
+    schematic_names: list[str] = []
+    user_image_names: list[str] = []
 
-	def get_prompt(self, prompt_number: int) -> str:
-		prompt_name = f"PROMPT{prompt_number}"
-		prompt_value = getattr(prompt_module, prompt_name, None)
-		if not isinstance(prompt_value, str) or not prompt_value.strip():
-			raise ValueError(f"{prompt_name} is not defined in prompt.py.")
-		return prompt_value.strip()
+    for path, name in _assign_names(schematic_paths, "machine_schematic"):
+        file_objects.append(_upload_file(client, path, name))
+        schematic_names.append(name)
 
-	def generate_for_task(
-		self,
-		task_name: str | int,
-		prompt_number: int | None,
-		text_source_1: str = "",
-		text_source_2: str = "",
-		mode: ResponseMode = "text",
-		prompt_text: str | None = None,
-		image_paths: Sequence[str | Path] | None = None,
-		text_model: str | None = None,
-		vision_model: str | None = None,
-		voice_model: str | None = None,
-	) -> dict[str, str | int | list[str] | None]:
-		return self.generate(
-			image_paths=image_paths or [],
-			prompt_number=prompt_number,
-			text_source_1=text_source_1,
-			text_source_2=text_source_2,
-			mode=mode,
-			prompt_text=prompt_text,
-			task_name=task_name,
-			text_model=text_model,
-			vision_model=vision_model,
-			voice_model=voice_model,
-		)
+    for path, name in _assign_names(user_image_paths, "technician_photo"):
+        file_objects.append(_upload_file(client, path, name))
+        user_image_names.append(name)
 
-	def generate(
-		self,
-		image_paths: Sequence[str | Path],
-		prompt_number: int | None,
-		text_source_1: str,
-		text_source_2: str,
-		mode: ResponseMode = "text",
-		prompt_text: str | None = None,
-		task_name: str | int | None = None,
-		text_model: str | None = None,
-		vision_model: str | None = None,
-		voice_model: str | None = None,
-	) -> dict[str, str | int | list[str] | None]:
-		self._apply_model_overrides(
-			text_model=text_model,
-			vision_model=vision_model,
-			voice_model=voice_model,
-		)
-		self.prompt_number = prompt_number
-		self.prompt_text = self._resolve_prompt(prompt_number, prompt_text)
-		self.text_source_1 = text_source_1.strip()
-		self.text_source_2 = text_source_2.strip()
-		self.task_name = self._normalize_task_name(task_name)
-		self.task_status = self._load_task_status(self.task_name) if self.task_name else ""
-		self.task_image_paths = self._load_task_image_paths(self.task_name) if self.task_name else []
-		all_image_paths = [*image_paths, *self.task_image_paths]
-		self.image_paths = self._normalize_image_paths(all_image_paths)
+    return file_objects, schematic_names, user_image_names
 
-		response_text = self._generate_text_response()
-		result: dict[str, str | int | list[str] | None] = {
-			"text_model": self.text_model,
-			"vision_model": self.vision_model,
-			"voice_model": self.voice_model,
-			"selected_model": self.selected_model,
-			"mode": mode,
-			"prompt_number": self.prompt_number,
-			"prompt_text": self.prompt_text,
-			"image_paths": [str(image_path) for image_path in self.image_paths],
-			"task_image_paths": [str(image_path) for image_path in self.task_image_paths],
-			"text_source_1": self.text_source_1,
-			"text_source_2": self.text_source_2,
-			"task_name": self.task_name,
-			"task_status": self.task_status or None,
-			"response_text": response_text,
-			"audio_path": None,
-			"audio_mime_type": None,
-		}
 
-		if mode == "voice":
-			audio_path, audio_mime_type = self._generate_voice_response(response_text)
-			result["audio_path"] = str(audio_path)
-			result["audio_mime_type"] = audio_mime_type
-		elif mode != "text":
-			raise ValueError("mode must be either 'text' or 'voice'.")
+# ── Prompt builder ───────────────────────────────────────────────────────────
 
-		return result
+def build_prompt(
+    user_message: str,
+    machine_info: str,
+    previous_context: str,
+    schematic_names: list[str],
+    user_image_names: list[str],
+) -> str:
+    """Construct the full prompt as a single f-string."""
 
-	def _apply_model_overrides(
-		self,
-		text_model: str | None = None,
-		vision_model: str | None = None,
-		voice_model: str | None = None,
-	) -> None:
-		if text_model and text_model.strip():
-			self.text_model = text_model.strip()
-		if vision_model and vision_model.strip():
-			self.vision_model = vision_model.strip()
-		if voice_model and voice_model.strip():
-			self.voice_model = voice_model.strip()
+    # -- sub-sections built before the f-string for readability ----------------
+    machine_section = (
+        machine_info.strip()
+        if machine_info and machine_info.strip()
+        else "No specific machine information was provided. Use your general technical knowledge, but inform the technician if you need more details about their specific machine."
+    )
 
-	def _resolve_prompt(self, prompt_number: int | None, prompt_text: str | None) -> str:
-		if prompt_text and prompt_text.strip():
-			return prompt_text.strip()
-		if prompt_number is None:
-			raise ValueError("prompt_number or prompt_text is required.")
-		return self.get_prompt(prompt_number)
+    context_section = (
+        previous_context.strip()
+        if previous_context and previous_context.strip()
+        else "No previous experience context is available. Treat this as a first interaction."
+    )
 
-	def _normalize_image_paths(self, image_paths: Sequence[str | Path]) -> list[Path]:
-		normalized_paths: list[Path] = []
-		for image_path in image_paths:
-			resolved_path = Path(image_path).expanduser().resolve()
-			if not resolved_path.exists() or not resolved_path.is_file():
-				raise FileNotFoundError(f"Image file not found: {resolved_path}")
-			if resolved_path.suffix.lower() not in SUPPORTED_IMAGE_SUFFIXES:
-				raise ValueError(
-					f"Unsupported image type for {resolved_path.name}. Use jpg, jpeg, png, webp, or gif."
-				)
-			normalized_paths.append(resolved_path)
+    if schematic_names:
+        schematic_section = (
+            "Refer to the attached schematic image(s) by the following name(s):\n"
+            + "\n".join(f'  - "{name}"' for name in schematic_names)
+        )
+    else:
+        schematic_section = "No schematic images were provided for this session."
 
-		return normalized_paths
+    if user_image_names:
+        user_image_section = (
+            "The technician has provided the following image(s) showing their current situation. "
+            "Examine these carefully to understand what the technician is seeing and describing.\n"
+            + "\n".join(f'  - "{name}"' for name in user_image_names)
+        )
+    else:
+        user_image_section = (
+            "The technician has not provided any images of their current situation. "
+            "Base your response only on their verbal description and the schematics."
+        )
 
-	def _generate_text_response(self) -> str:
-		uploaded_files = self._upload_images()
-		self.selected_model = self.vision_model if uploaded_files else self.text_model
-		response = self.get_client().models.generate_content(
-			model=self.selected_model,
-			contents=[self._build_prompt_payload(), *uploaded_files],
-		)
-		response_text = response.text or self._collect_text_from_parts(response)
-		if not response_text:
-			raise RuntimeError("Gemini returned an empty text response.")
-		return response_text
+    # -- the prompt ------------------------------------------------------------
+    prompt = f"""\
+You are an expert field-service technician assistant providing real-time support. \
+A technician is currently working on a piece of machinery and has contacted you for help. \
+Your response will be converted to speech and played directly to the technician through their earpiece, \
+so you must speak naturally and conversationally, as if you are a knowledgeable colleague standing right beside them on the job.
 
-	def _upload_images(self) -> list[types.File]:
-		uploaded_files: list[types.File] = []
-		client = self.get_client()
-		for image_path in self.image_paths:
-			uploaded_file = client.files.upload(file=image_path)
-			uploaded_files.append(wait_for_upload(client, uploaded_file))
-		return uploaded_files
+=== MACHINE INFORMATION ===
+The following is the known information about the machine the technician is working on. \
+This provided information takes absolute precedence over any prior knowledge you have about this machine or similar machines. \
+Use your general knowledge of this machine to supplement details, but never contradict what is explicitly stated here.
 
-	def _build_prompt_payload(self) -> str:
-		sections = [f"Prompt:\n{self.prompt_text}"]
-		if self.task_name:
-			sections.append(f"Task:\n{self.task_name}")
-		if self.task_status:
-			sections.append(f"Task status:\n{self.task_status}")
-		if self.text_source_1:
-			sections.append(f"Text source 1:\n{self.text_source_1}")
-		if self.text_source_2:
-			sections.append(f"Text source 2:\n{self.text_source_2}")
-		if self.image_paths:
-			sections.append("Use the provided images, prompt, and task status together in one combined answer.")
-		else:
-			sections.append("Use the provided prompt and task status together in one combined answer.")
-		return "\n\n".join(sections)
+{machine_section}
 
-	@staticmethod
-	def _collect_text_from_parts(response: types.GenerateContentResponse) -> str:
-		parts = getattr(response, "parts", None)
-		if not parts and getattr(response, "candidates", None):
-			parts = response.candidates[0].content.parts
+CRITICAL: If you do not have sufficient information about this specific machine, either from the details above \
+or from your own training data, to provide a safe and accurate answer, you MUST clearly tell the technician \
+that you do not have enough information and advise them to consult the manufacturer documentation, \
+the machine manual, or a specialist. Never guess or speculate about safety-critical procedures, \
+wiring, pressures, voltages, or chemical processes.
 
-		if not parts:
-			return ""
+=== PREVIOUS EXPERIENCE CONTEXT ===
+The following is a summary of the technician's previous interactions and documented experiences with this machine. \
+Use this to avoid repeating steps already taken, build on previous troubleshooting progress, \
+and maintain continuity across sessions.
 
-		return "".join(part.text for part in parts if getattr(part, "text", None))
+{context_section}
+
+=== MACHINE SCHEMATICS ===
+{schematic_section}
+
+Use these schematics to identify components, trace connections such as wiring, piping, or mechanical linkages, \
+and give the technician precise spatial directions when guiding them to a part or area on the machine.
+
+=== TECHNICIAN-PROVIDED IMAGES ===
+{user_image_section}
+
+=== TECHNICIAN'S MESSAGE ===
+The technician has said the following (originally spoken, transcribed to text):
+
+"{user_message}"
+
+=== RESPONSE INSTRUCTIONS ===
+Your response will be spoken aloud to the technician as a voice message. Follow these rules strictly:
+
+Write in natural, spoken language. Do not use bullet points, numbered lists, markdown formatting, \
+asterisks, dashes, special characters, or any visual-only formatting. Structure your response as \
+flowing speech with clear pauses between ideas.
+
+Be concise but thorough. The technician is actively working with their hands and needs clear, \
+actionable guidance, not lengthy theory.
+
+When referencing locations on the machine, use the schematics to give precise, unambiguous directions. \
+For example say something like "the relay on the upper left of the control panel, the one labeled R3 \
+on the schematic" rather than vague references.
+
+If the technician provided images, describe specifically what you observe in them and connect your \
+observations to your guidance. Do not ignore the images.
+
+If the technician is documenting something rather than asking for help, acknowledge what they have \
+recorded, confirm the details clearly, and note anything that seems unusual or worth flagging.
+
+Prioritize safety above all else. If any recommended action could be dangerous, state the safety \
+precaution first before giving the instruction. If you are unsure whether an action is safe, say so.
+
+If you need more information from the technician to help them effectively, ask specific follow-up \
+questions. Tell them exactly what to check, measure, or describe.
+
+Do not use abbreviations or acronyms without first saying the full term at least once.
+
+Keep your tone professional, calm, and supportive. The technician may be under stress."""
+
+    return prompt
+
+
+# ── API call stub ────────────────────────────────────────────────────────────
+
+def send_api(prompt: str, files: list) -> str:
+    """
+    Stub — sends the prompt and uploaded file objects to the Gemini API.
+    TODO: Replace with actual implementation.
+
+    Args:
+        prompt: The full prompt string.
+        files:  List of Gemini file API file objects.
+
+    Returns:
+        The model's text response as a string.
+    """
+    print(f"[sendAPI stub] Would send prompt ({len(prompt)} chars) + {len(files)} file(s) to Gemini.")
+    return "[Stub response — replace sendAPI with actual implementation]"
+
+
+# ── Orchestrator ─────────────────────────────────────────────────────────────
+
+def run_second_prompt(
+    user_message: str,
+    schematic_image_paths: list[str],
+    user_image_paths: list[str] | None = None,
+    machine_info: str = "",
+    previous_context: str = "",
+) -> str:
+    """
+    Orchestrates the second prompt: uploads images, builds prompt, calls API.
+
+    Returns the AI's text response (intended to be spoken to the technician).
+    """
+    user_image_paths = user_image_paths or []
+
+    client = _get_client()
+    file_objects, schematic_names, user_image_names = prepare_files(
+        client, schematic_image_paths, user_image_paths
+    )
+
+    prompt = build_prompt(
+        user_message=user_message,
+        machine_info=machine_info,
+        previous_context=previous_context,
+        schematic_names=schematic_names,
+        user_image_names=user_image_names,
+    )
+
+    response_text = send_api(prompt, file_objects)
+    return response_text
+
+
+# ── Entry point ──────────────────────────────────────────────────────────────
+
+def main():
+    """Stand-in entry point for testing."""
+    test_schematics = [
+        os.path.join(SCHEMATIC_IMAGE_DIR, "schematic_page1.png"),
+    ]
+    test_user_images = [
+        os.path.join(USER_IMAGE_DIR, "current_issue.jpg"),
+    ]
+
+    response = run_second_prompt(
+        user_message="The motor is making a grinding noise when I try to start it up. "
+                     "I checked the belt and it looks fine but I'm not sure what else to look at.",
+        schematic_image_paths=test_schematics,
+        user_image_paths=test_user_images,
+        machine_info="Prusa MK4S 3D Printer, Serial: PM4S-2024-00847",
+        previous_context="Last session: Technician replaced the extruder gear and recalibrated "
+                         "the first layer. Print quality improved but technician noted intermittent "
+                         "clicking from the extruder motor during long prints.",
+    )
+
+    print("\n" + "=" * 60)
+    print("AI RESPONSE TO TECHNICIAN:")
+    print("=" * 60)
+    print(response)
+
+
+if __name__ == "__main__":
+    main()
