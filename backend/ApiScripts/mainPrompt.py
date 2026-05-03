@@ -8,7 +8,7 @@ Output is spoken-style text guidance for the technician.
 """
 
 try:
-    from AIAPICall import sendAPI
+    from GeminiEndpoint import sendAPI
 except ImportError:
     sendAPI = None
 

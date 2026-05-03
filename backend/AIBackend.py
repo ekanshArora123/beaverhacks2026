@@ -22,29 +22,29 @@ def _load_repo_key() -> str | None:
 GEMINI_KEY = _load_repo_key()
 
 try:
-	from .config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+	from .ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 except ImportError:
-	from config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+	from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
-	from .promptScripts.diagramPrompt import MainPromptMixin
+	from .ApiScripts.diagramPrompt import MainPromptMixin
 except ImportError:
-	from promptScripts.diagramPrompt import MainPromptMixin
+	from ApiScripts.diagramPrompt import MainPromptMixin
 
 try:
-	from .promptScripts.mainPrompt import SecondPromptMixin
+	from .ApiScripts.mainPrompt import SecondPromptMixin
 except ImportError:
-	from promptScripts.mainPrompt import SecondPromptMixin
+	from ApiScripts.mainPrompt import SecondPromptMixin
 
 try:
-	from .promptScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
+	from .ApiScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
 except ImportError:
-	from promptScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
+	from ApiScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
 
 try:
-	from .promptScripts.textToVoice import TTSMixin
+	from .ApiScripts.textToVoice import TTSMixin
 except ImportError:
-	from promptScripts.textToVoice import TTSMixin
+	from ApiScripts.textToVoice import TTSMixin
 
 
 def load_api_key() -> str:
