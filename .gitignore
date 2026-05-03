@@ -8,3 +8,4 @@ backend/__pycache__/*
 */.vite/*
 .gitignore
 
+*/__pycache__/**
