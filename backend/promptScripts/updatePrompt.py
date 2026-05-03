@@ -1,7 +1,7 @@
-"""Fourth prompt helpers.
+"""Update prompt helper.
 
-Prompt 4 takes all previous context plus a user update and persists the current
-task state as plain text.
+Update prompt takes all previous inputs and persists the current
+task state as plain text. Intended to be run after diagram prompt 
 """
 
 import ast
