@@ -12,6 +12,11 @@ from typing import Literal, Sequence
 from google import genai
 from google.genai import types
 
+try:
+	from .docTools import get_doc_tools
+except ImportError:
+	from docTools import get_doc_tools
+
 SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
 	".jpeg",
@@ -255,6 +260,9 @@ class DiagramPromptMixin:
 		response = self.get_client().models.generate_content(
 			model=self.selected_model,
 			contents=[self._build_prompt_payload(), *uploaded_files],
+			config=types.GenerateContentConfig(
+				tools=get_doc_tools(),
+			),
 		)
 		response_text = response.text or self._collect_text_from_parts(response)
 		if not response_text:
@@ -306,6 +314,14 @@ class DiagramPromptMixin:
 		else:
 			sections.append("Use the provided task context to produce one clear next-step instruction.")
 		sections.append("Output plain text only.")
+		sections.append(
+			"DOCUMENTATION TOOLS: You have access to a local documentation library "
+			"organized by machine name. If the technician mentions a specific machine, "
+			"use list_machine_folders to check if docs exist, list_documents to see "
+			"available files, and read_document to read relevant ones. Be selective — "
+			"only read documents whose filenames suggest relevance to the current problem. "
+			"If no documentation folder exists, proceed with your general knowledge."
+		)
 		return "\n\n".join(sections)
 
 	def _build_diagram_prompt_payload(self, first_prompt_response: str) -> str:
