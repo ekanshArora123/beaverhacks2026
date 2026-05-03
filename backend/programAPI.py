@@ -641,8 +641,13 @@ def session_new():
     return jsonify({"code": code})
 
 
+def _normalize_session_code(code: str) -> str:
+    return (code or "").strip().upper()
+
+
 @app.route("/session/<code>/input", methods=["POST"])
 def session_input(code: str):
+    code = _normalize_session_code(code)
     if not sessionStore.session_exists(code):
         return jsonify({"error": "Unknown or expired session code"}), 404
 
@@ -692,6 +697,7 @@ def session_input(code: str):
 
 @app.route("/session/<code>/pending", methods=["GET"])
 def session_pending(code: str):
+    code = _normalize_session_code(code)
     if not sessionStore.session_exists(code):
         return jsonify({"error": "Unknown or expired session code"}), 404
 

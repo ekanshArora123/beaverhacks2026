@@ -31,6 +31,14 @@ function resolveRecorderFormat(): RecorderFormat {
   return { mimeType: 'audio/webm', extension: 'webm' }
 }
 
+function extensionFromMime(mime: string): string {
+  const m = mime.toLowerCase()
+  if (m.includes('ogg')) return 'ogg'
+  if (m.includes('mpeg') || m.includes('mp3')) return 'mp3'
+  if (m.includes('mp4') || m.includes('aac') || m.includes('m4a')) return 'm4a'
+  return 'webm'
+}
+
 export interface UseCaptureSessionOptions {
   facingMode?: 'user' | 'environment'
   enabled?: boolean
@@ -66,9 +74,12 @@ export function useCaptureSession(options: UseCaptureSessionOptions = {}): UseCa
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
+  const [recorderFormat, setRecorderFormat] = useState<RecorderFormat | null>(null)
 
   useEffect(() => {
     if (!enabled) {
+      setRecorderFormat(null)
+      recorderFormatRef.current = null
       return
     }
 
@@ -87,12 +98,25 @@ export function useCaptureSession(options: UseCaptureSessionOptions = {}): UseCa
           videoRef.current.muted = true
         }
 
-        const recorderFormat = resolveRecorderFormat()
-        recorderFormatRef.current = recorderFormat
+        let chosenFormat = resolveRecorderFormat()
+        recorderFormatRef.current = chosenFormat
 
         const audioStream = new MediaStream(stream.getAudioTracks())
-        const mediaRecorder = new MediaRecorder(audioStream, { mimeType: recorderFormat.mimeType })
+        let mediaRecorder: MediaRecorder
+        try {
+          mediaRecorder = new MediaRecorder(audioStream, { mimeType: chosenFormat.mimeType })
+        } catch {
+          mediaRecorder = new MediaRecorder(audioStream)
+          const browserMime = mediaRecorder.mimeType || chosenFormat.mimeType
+          const inferred = RECORDER_FORMAT_CANDIDATES.find((candidate) => candidate.mimeType === browserMime)
+          chosenFormat = inferred ?? {
+            mimeType: browserMime || 'audio/webm',
+            extension: extensionFromMime(browserMime || ''),
+          }
+          recorderFormatRef.current = chosenFormat
+        }
         mediaRecorderRef.current = mediaRecorder
+        setRecorderFormat(chosenFormat)
 
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0) {
@@ -127,6 +151,7 @@ export function useCaptureSession(options: UseCaptureSessionOptions = {}): UseCa
       }
       mediaRecorderRef.current = null
       recorderFormatRef.current = null
+      setRecorderFormat(null)
     }
   }, [enabled, facingMode])
 
@@ -194,7 +219,7 @@ export function useCaptureSession(options: UseCaptureSessionOptions = {}): UseCa
     setCapturedImages,
     isRecording,
     hasAudioRecording,
-    recorderFormat: recorderFormatRef.current,
+    recorderFormat,
     captureImage,
     removeCapturedImage,
     toggleRecording,
