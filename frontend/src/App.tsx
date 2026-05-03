@@ -109,7 +109,6 @@ function App() {
 
   const [isRecording, setIsRecording] = useState(false)
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
-  const [useTextInput, setUseTextInput] = useState(false)
   const [manualTextInput, setManualTextInput] = useState('')
   const [diagramSource, setDiagramSource] = useState<DiagramSource>('user')
 
@@ -197,20 +196,6 @@ function App() {
   const discardAudio = () => {
     audioChunksRef.current = []
     setHasAudioRecording(false)
-  }
-
-  const toggleTextInputMode = () => {
-    const nextUseTextInput = !useTextInput
-    setUseTextInput(nextUseTextInput)
-
-    if (nextUseTextInput) {
-      if (isRecording && mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop()
-      }
-      setIsRecording(false)
-      audioChunksRef.current = []
-      setHasAudioRecording(false)
-    }
   }
 
   const togglePhoneInputMode = () => {
@@ -306,23 +291,18 @@ function App() {
       : manualTextInput.trim()
     const hasManualText = isPhonePayload
       ? manualUserText.length > 0
-      : useTextInput && manualUserText.length > 0
+      : manualUserText.length > 0
 
     const phoneAudioBlob = isPhonePayload ? phoneInputs!.audioBlob : null
     const hasPhoneAudio = isPhonePayload && !!phoneAudioBlob
 
-    const hasLocalAudioPending = !isPhonePayload && !useTextInput && audioChunksRef.current.length > 0
+    const hasLocalAudioPending = !isPhonePayload && audioChunksRef.current.length > 0
     if (selectedUserImages.length === 0 && !hasManualText && !hasPhoneAudio && !hasLocalAudioPending) {
       if (!isPhonePayload) {
         alert('Please provide at least one input: capture an image, record audio, or enter text.')
       } else {
         console.warn('Phone payload arrived empty — skipping send')
       }
-      return
-    }
-
-    if (!isPhonePayload && useTextInput && !hasManualText) {
-      alert('Please enter text before sending, or switch back to audio mode.')
       return
     }
 
@@ -354,7 +334,7 @@ function App() {
         fallbackLimit: USER_IMAGE_FALLBACK_LIMIT,
         schematicCount: SCHEMATIC_IMAGE_PATHS.length,
         diagramSource,
-        inputMode: isPhonePayload ? 'phone' : (useTextInput ? 'text' : 'audio'),
+        inputMode: isPhonePayload ? 'phone' : (hasManualText ? 'text' : 'audio'),
       })
 
       formData.append('diagram_source', diagramSource)
@@ -451,9 +431,7 @@ function App() {
         setCapturedImages([])
         audioChunksRef.current = []
         setHasAudioRecording(false)
-        if (useTextInput) {
-          setManualTextInput('')
-        }
+        setManualTextInput('')
       }
     } catch (error) {
       console.error('Error sending to backend:', error)
@@ -555,7 +533,7 @@ function App() {
   }, [usePhoneInput])
 
   const hasManualText = manualTextInput.trim().length > 0
-  const hasAnyInput = capturedImages.length > 0 || (useTextInput ? hasManualText : hasAudioRecording) || hasAudioRecording
+  const hasAnyInput = capturedImages.length > 0 || hasManualText || hasAudioRecording
   const isSendDisabled = isSending || !hasAnyInput
 
   return (
@@ -564,8 +542,6 @@ function App() {
       <div className={`main-content ${usePhoneInput ? 'phone-mode-layout' : ''}`}>
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
-          <h2>Analysis Results</h2>
-
           {analysisResult && (
             <div style={{
               padding: '15px',
@@ -598,15 +574,17 @@ function App() {
 
         {/* Right column: Webcam (or phone pairing panel when phone mode is active) */}
         <div className="webcam-column">
-          <div className="input-mode-bar">
-            <button
-              className={`input-mode-button ${usePhoneInput ? 'input-mode-active' : ''}`}
-              onClick={togglePhoneInputMode}
-              title={usePhoneInput ? 'Stop using phone as input' : 'Use Android phone as input device'}
-            >
-              {usePhoneInput ? '📱 Phone On' : '📱 Use Phone'}
-            </button>
-          </div>
+          {usePhoneInput && (
+            <div className="input-mode-bar">
+              <button
+                className="input-mode-button input-mode-active"
+                onClick={togglePhoneInputMode}
+                title="Stop using phone as input"
+              >
+                Phone On
+              </button>
+            </div>
+          )}
 
           {usePhoneInput ? (
             <SessionPairingPanel
@@ -618,7 +596,6 @@ function App() {
             />
           ) : (
             <>
-              <h2>Live Webcam</h2>
               <div className="video-container">
                 {webcamError ? (
                   <div className="error-message">{webcamError}</div>
@@ -631,58 +608,53 @@ function App() {
                       className="display-video"
                     />
                     {isRecording && <div className="recording-overlay" />}
-                    <div className="webcam-controls">
-                      <button
-                        className="capture-button"
-                        onClick={captureImage}
-                        title="Capture Image"
-                      >
-                        📷 Capture
-                      </button>
-                      <button
-                        className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
-                        onClick={toggleRecording}
-                        title={useTextInput ? 'Text mode is active' : (isRecording ? 'Stop Recording' : 'Start Recording')}
-                        disabled={useTextInput}
-                      >
-                        {isRecording ? '⏹ Stop' : '🎤 Record'}
-                      </button>
-                      <button
-                        className={`input-mode-button ${useTextInput ? 'input-mode-active' : ''}`}
-                        onClick={toggleTextInputMode}
-                        title={useTextInput ? 'Use audio instead' : 'Use text instead of audio'}
-                      >
-                        {useTextInput ? '⌨ Text On' : '⌨ Use Text'}
-                      </button>
-                      <button
-                        className={`diagram-source-button ${diagramSource === 'user' ? 'diagram-source-user' : 'diagram-source-schematic'}`}
-                        onClick={toggleDiagramSource}
-                        title={hasSchematicSources
-                          ? 'Switch edited-image source (user photo vs schematic)'
-                          : 'No schematic source configured. Set VITE_SCHEMATIC_IMAGE_PATHS to enable switching.'}
-                        disabled={!hasSchematicSources}
-                      >
-                        {diagramSource === 'user' ? '🖼 Edit: User' : '📐 Edit: Schematic'}
-                      </button>
-                    </div>
                   </>
                 )}
               </div>
-              <p className="diagram-source-hint">
-                Edited image source: <strong>{diagramSource === 'user' ? 'User photo' : 'Schematic image'}</strong>
-              </p>
-              {useTextInput && (
-                <div className="text-input-panel">
-                  <label htmlFor="manual-input" className="text-input-label">Technician text input</label>
-                  <textarea
-                    id="manual-input"
-                    className="manual-input"
-                    value={manualTextInput}
-                    onChange={(event) => setManualTextInput(event.target.value)}
-                    placeholder="Type what the technician would normally say out loud..."
-                    rows={3}
-                  />
-                  <p className="text-input-hint">Text mode sends this message instead of recorded audio.</p>
+              {!webcamError && (
+                <div className="webcam-controls" role="group" aria-label="Webcam controls">
+                  <button
+                    className="webcam-control-button"
+                    onClick={togglePhoneInputMode}
+                    title="Use Android phone as input device"
+                    type="button"
+                  >
+                    <span className="control-label">Use Phone</span>
+                  </button>
+                  <button
+                    className="capture-button"
+                    onClick={captureImage}
+                    title="Capture Image"
+                    type="button"
+                  >
+                    <span className="control-label">Capture</span>
+                  </button>
+                  <button
+                    className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
+                    onClick={toggleRecording}
+                    title={isRecording ? 'Stop Recording' : 'Start Recording'}
+                    type="button"
+                  >
+                    <span className="control-label">{isRecording ? 'Stop' : 'Record'}</span>
+                  </button>
+                  <button
+                    className="send-button send-button-island"
+                    onClick={() => {
+                      void sendToBackend()
+                    }}
+                    disabled={isSendDisabled}
+                    type="button"
+                  >
+                    {isSending
+                      ? 'Sending...'
+                      : (() => {
+                        const parts: string[] = []
+                        if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
+                        if (hasManualText) parts.push('text')
+                        if (hasAudioRecording) parts.push('audio')
+                        return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
+                      })()}
+                  </button>
                 </div>
               )}
               {/* Audio status indicator below the webcam */}
@@ -693,7 +665,7 @@ function App() {
                   ) : (
                     <>
                       <span className="audio-status-dot ready-dot" /> Audio recorded — will be sent with images
-                      <button className="discard-audio-btn" onClick={discardAudio} title="Discard audio">✕</button>
+                      <button className="discard-audio-btn" onClick={discardAudio} title="Discard audio">Discard</button>
                     </>
                   )}
                 </div>
@@ -705,40 +677,36 @@ function App() {
 
       {/* Thumbnail preview & send controls (laptop capture mode only) */}
       {!usePhoneInput && (
-        <div className="thumbnails-section">
-          {capturedImages.length > 0 && (
-            <div className="thumbnails-container">
-              {capturedImages.map((img) => (
-                <div key={img.id} className="thumbnail-box">
-                  <img src={img.dataUrl} alt="Captured" className="thumbnail" />
-                  <button
-                    className="remove-thumbnail"
-                    onClick={() => removeCapturedImage(img.id)}
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            className="send-button"
-            onClick={() => {
-              void sendToBackend()
-            }}
-            disabled={isSendDisabled}
-          >
-            {isSending
-              ? 'Sending...'
-              : (() => {
-                const parts: string[] = []
-                if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
-                if (useTextInput && hasManualText) parts.push('text')
-                else if (!useTextInput && hasAudioRecording) parts.push('audio')
-                return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
-              })()}
-          </button>
+        <div className="bottom-bar">
+          <div className="thumbnails-section">
+            {capturedImages.length > 0 ? (
+              <div className="thumbnails-container">
+                {capturedImages.map((img) => (
+                  <div key={img.id} className="thumbnail-box">
+                    <img src={img.dataUrl} alt="Captured" className="thumbnail" />
+                    <button
+                      className="remove-thumbnail"
+                      onClick={() => removeCapturedImage(img.id)}
+                      title="Remove"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="thumbnails-empty">No photos yet</span>
+            )}
+          </div>
+          <div className="text-input-panel">
+            <textarea
+              id="manual-input"
+              className="manual-input"
+              value={manualTextInput}
+              onChange={(event) => setManualTextInput(event.target.value)}
+              placeholder="Type a message..."
+            />
+          </div>
         </div>
       )}
 

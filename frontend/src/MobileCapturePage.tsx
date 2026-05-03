@@ -36,7 +36,6 @@ function MobileCapturePage() {
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle')
   const [statusMessage, setStatusMessage] = useState<string>('')
   const [textInput, setTextInput] = useState<string>('')
-  const [showText, setShowText] = useState<boolean>(false)
 
   const capture = useCaptureSession({
     facingMode: 'environment',
@@ -235,6 +234,34 @@ function MobileCapturePage() {
         </p>
       )}
 
+      <div className="mobile-controls">
+        <button
+          className="mobile-shutter"
+          onClick={capture.captureImage}
+          disabled={controlsDisabled}
+          type="button"
+        >
+          <span className="mobile-control-label">Photo</span>
+        </button>
+        <button
+          className={`mobile-mic ${capture.isRecording ? 'mobile-mic-recording' : ''} ${capture.hasAudioRecording ? 'mobile-mic-ready' : ''} ${micDisabled && capture.isMediaReady ? 'mobile-mic-disabled' : ''}`}
+          onClick={capture.toggleRecording}
+          disabled={micDisabled}
+          title={!capture.microphoneAvailable && capture.isMediaReady ? 'Microphone not granted on this connection' : undefined}
+          type="button"
+        >
+          <span className="mobile-control-label">{capture.isRecording ? 'Stop' : 'Audio'}</span>
+        </button>
+        <button
+          className="mobile-send mobile-send-island"
+          onClick={() => void handleSend()}
+          disabled={sendStatus === 'sending'}
+          type="button"
+        >
+          <span className="mobile-control-label">{sendStatus === 'sending' ? 'Sending...' : 'Send'}</span>
+        </button>
+      </div>
+
       <div className="mobile-thumb-strip">
         {capture.capturedImages.length === 0 ? (
           <span className="mobile-thumb-empty">No photos yet</span>
@@ -246,60 +273,26 @@ function MobileCapturePage() {
                 className="mobile-thumb-remove"
                 onClick={() => capture.removeCapturedImage(image.id)}
                 aria-label="Remove photo"
-              >×</button>
+              >Remove</button>
             </div>
           ))
         )}
       </div>
 
-      <div className="mobile-controls">
-        <button
-          className="mobile-shutter"
-          onClick={capture.captureImage}
-          disabled={controlsDisabled}
-        >
-          📷
-        </button>
-        <button
-          className={`mobile-mic ${capture.isRecording ? 'mobile-mic-recording' : ''} ${capture.hasAudioRecording ? 'mobile-mic-ready' : ''} ${micDisabled && capture.isMediaReady ? 'mobile-mic-disabled' : ''}`}
-          onClick={capture.toggleRecording}
-          disabled={micDisabled}
-          title={!capture.microphoneAvailable && capture.isMediaReady ? 'Microphone not granted on this connection' : undefined}
-        >
-          {capture.isRecording ? '⏹' : '🎤'}
-        </button>
-        <button
-          className={`mobile-text-toggle ${showText ? 'mobile-text-toggle-active' : ''}`}
-          onClick={() => setShowText((previous) => !previous)}
-        >
-          ⌨
-        </button>
-      </div>
-
-      {showText && (
-        <textarea
-          className="mobile-text-input"
-          value={textInput}
-          onChange={(event) => setTextInput(event.target.value)}
-          placeholder="Type a message instead of (or in addition to) audio..."
-          rows={3}
-        />
-      )}
+      <textarea
+        className="mobile-text-input"
+        value={textInput}
+        onChange={(event) => setTextInput(event.target.value)}
+        placeholder="Type a message..."
+        rows={3}
+      />
 
       {capture.hasAudioRecording && !capture.isRecording && (
         <div className="mobile-audio-ready">
           <span>🎙 Audio captured</span>
-          <button type="button" onClick={capture.discardAudio} aria-label="Discard audio">✕</button>
+          <button type="button" onClick={capture.discardAudio} aria-label="Discard audio">Discard</button>
         </div>
       )}
-
-      <button
-        className="mobile-send"
-        onClick={() => void handleSend()}
-        disabled={sendStatus === 'sending'}
-      >
-        {sendStatus === 'sending' ? 'Sending...' : 'Send to laptop'}
-      </button>
 
       {statusMessage && (
         <div className={`mobile-status mobile-status-${sendStatus}`}>{statusMessage}</div>

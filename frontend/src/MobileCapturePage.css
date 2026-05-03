@@ -36,14 +36,16 @@
 
 .mobile-app {
   min-height: 100vh;
-  background: #1a1f24;
+  background:
+    radial-gradient(circle at top, rgba(88, 126, 164, 0.18), transparent 34%),
+    linear-gradient(180deg, #12181f 0%, #1a212a 48%, #141b22 100%);
   color: #f5f7f9;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
-  gap: 0.75rem;
+  padding: 1rem 1rem 1.25rem;
+  gap: 0.85rem;
   box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
 }
 
 .mobile-header {
@@ -189,14 +191,18 @@
 
 .mobile-video-wrap {
   position: relative;
-  flex: 1;
-  min-height: 240px;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: min(56vh, 560px);
   background: #000;
-  border-radius: 16px;
+  border-radius: 24px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .mobile-video {
@@ -260,7 +266,7 @@
   gap: 0.5rem;
   overflow-x: auto;
   padding: 0.25rem 0;
-  min-height: 70px;
+  min-height: 62px;
   align-items: center;
   flex-shrink: 0;
 }
@@ -273,12 +279,13 @@
 
 .mobile-thumb {
   position: relative;
-  width: 70px;
-  height: 70px;
-  border-radius: 10px;
+  width: 62px;
+  height: 62px;
+  border-radius: 14px;
   overflow: hidden;
   flex-shrink: 0;
   background: #2a3138;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .mobile-thumb img {
@@ -294,59 +301,128 @@
   background: rgba(0, 0, 0, 0.7);
   color: #fff;
   border: none;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  font-size: 14px;
+  border-radius: 999px;
+  min-height: 22px;
+  font-size: 0.62rem;
   cursor: pointer;
   line-height: 1;
+  padding: 0.18rem 0.35rem;
+  font-weight: 700;
 }
 
 .mobile-controls {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.75rem;
+  gap: 0.55rem;
   flex-shrink: 0;
+  width: min(100%, 360px);
+  margin: 0 auto;
+  padding: 0.55rem;
+  border-radius: 22px;
+  background: rgba(16, 22, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(14px);
+}
+
+.mobile-send-island {
+  min-height: 68px;
+  padding: 0.65rem 0.45rem 0.55rem;
+  border-radius: 16px;
+  border: 1px solid rgba(126, 224, 167, 0.55);
+  background: linear-gradient(180deg, #5acb87 0%, #2f9d56 100%);
+  color: #0c2a17;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 10px 18px rgba(46, 157, 86, 0.28);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.mobile-send-island:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.mobile-send-island:disabled {
+  background: #5b6770;
+  color: #b9c2cb;
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .mobile-shutter,
 .mobile-mic,
 .mobile-text-toggle {
-  font-size: 1.8rem;
-  padding: 1rem 0;
-  border-radius: 12px;
-  border: 1px solid #3a444f;
-  background: #2a3138;
+  min-height: 68px;
+  padding: 0.65rem 0.45rem 0.55rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, #2a3139 0%, #202830 100%);
   color: #fff;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, filter 140ms ease;
+}
+
+.mobile-shutter:active,
+.mobile-mic:active,
+.mobile-text-toggle:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.mobile-shutter:disabled,
+.mobile-mic:disabled,
+.mobile-text-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+.mobile-control-label {
+  font-size: 0.8rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
 }
 
 .mobile-shutter {
-  background: #4dabf7;
-  color: #0b2238;
-  border-color: #4dabf7;
+  background: linear-gradient(180deg, #d8ecff 0%, #a5d5fb 100%);
+  color: #0c2538;
+  border-color: rgba(182, 224, 255, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 10px 18px rgba(77, 171, 247, 0.24);
 }
 
 .mobile-mic-recording {
-  background: #e74c3c;
-  border-color: #e74c3c;
+  background: linear-gradient(180deg, #ff8d7b 0%, #db4e3f 100%);
+  border-color: rgba(255, 164, 151, 0.85);
   animation: mobile-pulse 1.4s ease-in-out infinite;
 }
 
 .mobile-mic-ready {
-  background: #27ae60;
-  border-color: #27ae60;
+  background: linear-gradient(180deg, #69d89a 0%, #239054 100%);
+  border-color: rgba(126, 224, 167, 0.88);
 }
 
 .mobile-text-toggle-active {
-  background: #ff9f1a;
-  border-color: #ff9f1a;
+  background: linear-gradient(180deg, #ffd28b 0%, #eb9a2b 100%);
+  border-color: rgba(255, 215, 148, 0.9);
   color: #1f2933;
 }
 
 .mobile-text-input {
   width: 100%;
-  resize: vertical;
+  resize: none;
   min-height: 70px;
   border-radius: 12px;
   padding: 0.75rem 1rem;
@@ -371,10 +447,13 @@
 
 .mobile-audio-ready button {
   background: none;
-  border: none;
+  border: 1px solid rgba(184, 230, 197, 0.45);
   color: #b8e6c5;
-  font-size: 1rem;
+  font-size: 0.76rem;
   cursor: pointer;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  font-weight: 700;
 }
 
 .mobile-status {
@@ -397,4 +476,11 @@
 .mobile-status-error {
   background: #3a1f1f;
   color: #ffb1a8;
+}
+
+@media (min-width: 700px) {
+  .mobile-app {
+    max-width: 520px;
+    margin: 0 auto;
+  }
 }
