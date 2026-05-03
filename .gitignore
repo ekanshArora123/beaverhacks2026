@@ -8,5 +8,7 @@ backend/__pycache__/*
 */.vite/*
 .gitignore
 *.env
+*keys.env
 */__pycache__/**
 keys.env
+keys.py

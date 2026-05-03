@@ -14,13 +14,6 @@ interface AnalyzeResponse {
   error?: string
 }
 
-interface VoiceToTextResponse {
-  text?: string
-  user_input_text?: string
-  model?: string
-  error?: string
-}
-
 interface RecorderFormat {
   mimeType: string
   extension: string
@@ -72,10 +65,11 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
-  
+
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
   const [returnedImages, setReturnedImages] = useState<string[]>([])
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
 
   const [isRecording, setIsRecording] = useState(false)
@@ -110,14 +104,11 @@ function App() {
           }
         }
 
-        mediaRecorder.onstop = async () => {
-          const activeRecorderFormat = recorderFormatRef.current
-          if (!activeRecorderFormat) {
-            return
-          }
-          const audioBlob = new Blob(audioChunksRef.current, { type: activeRecorderFormat.mimeType })
-          audioChunksRef.current = [] // reset
-          await sendAudioToBackend(audioBlob, activeRecorderFormat)
+        mediaRecorder.onstop = () => {
+          // Audio chunks are accumulated across sessions
+          // They will be sent together with images when user clicks Send
+          const count = audioChunksRef.current.length
+          setTranscription(`Audio recorded (${count} chunk${count !== 1 ? 's' : ''})`)
         }
 
         // --- Automated Voice Activity Detection (VAD) ---
@@ -139,26 +130,32 @@ function App() {
           analyser.getByteFrequencyData(array)
 
           let maxVolume = 0
-          for (let i = 0; i < array.length; i++) {
-            if (array[i] > maxVolume) {
-              maxVolume = array[i]
+          
+          // Prevent feedback loops: if the computer is currently reading an AI response, 
+          // ignore the microphone input so it doesn't accidentally trigger itself!
+          if (!window.speechSynthesis.speaking) {
+            for (let i = 0; i < array.length; i++) {
+              if (array[i] > maxVolume) {
+                maxVolume = array[i]
+              }
             }
           }
 
           // VOLUME THRESHOLD: Volume ranges from 0 to 255.
-          const THRESHOLD = 10
+          const THRESHOLD = 20
 
           if (maxVolume > THRESHOLD) {
             // User is speaking
             if (!isSpeaking) {
               isSpeaking = true
               if (mediaRecorder.state === "inactive") {
+                // Ensure audio context is running (browsers suspend it if no user interaction occurred)
                 if (localAudioContext.state === 'suspended') {
                   void localAudioContext.resume()
                 }
                 mediaRecorder.start()
                 setIsRecording(true)
-                setTranscription("Listening...")
+                setTranscription("Recording audio...")
               }
             }
             // Clear any pending silence timeout because they are still talking
@@ -173,14 +170,16 @@ function App() {
               silenceTimer = setTimeout(() => {
                 isSpeaking = false
                 if (mediaRecorder.state === "recording") {
-                  mediaRecorder.stop() // Triggers mediaRecorder.onstop -> sendAudioToBackend
+                  mediaRecorder.stop() // Stops recording, accumulates chunks
                   setIsRecording(false)
-                  setTranscription("Thinking...")
                 }
               }, 2000)
             }
           }
 
+          // Debug log - open DevTools (F12) to see this!
+          // If this says 0 continuously, your browser is using the wrong microphone 
+          // or the audio engine is still suspended.
           if (maxVolume > 0 || localAudioContext.state === 'suspended') {
             console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state)
           }
@@ -225,7 +224,7 @@ function App() {
         const stream = videoRef.current.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
       }
-      
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
@@ -294,6 +293,17 @@ function App() {
       const formData = new FormData()
       formData.append('file', imageBlob, 'capture.png')
       formData.append('prompt', getAnalysisPrompt())
+
+      // Append accumulated audio if available
+      if (audioChunksRef.current.length > 0 && recorderFormatRef.current) {
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorderFormatRef.current.mimeType })
+        formData.append('audio', audioBlob, `recording.${recorderFormatRef.current.extension}`)
+        console.log('Sending audio:', {
+          size: audioBlob.size,
+          type: audioBlob.type,
+          chunks: audioChunksRef.current.length
+        })
+      }
       
       // Call backend
       const analyzeUrl = buildApiUrl('/analyze')
@@ -322,43 +332,23 @@ function App() {
         setReturnedImages([])
       }
 
-      alert(`Analysis: ${result?.text || 'No response'}`)
+      const responseText = result?.text || 'No response'
+      setAnalysisResult(responseText)
+
+      // Stop any existing speech and read the new response aloud
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(responseText)
+      window.speechSynthesis.speak(utterance)
 
       setCapturedImages([])
+      audioChunksRef.current = [] // Reset accumulated audio
+      setTranscription('') // Clear transcription after successful send
     } catch (error) {
       console.error('Error sending to backend:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
       alert(`Error: ${errorMessage}\n\nMake sure:\n1. Flask server is running (python backend/start_server.py)\n2. You have set GEMINI_API_KEY`)
     } finally {
       setIsSending(false)
-    }
-  }
-
-  const sendAudioToBackend = async (audioBlob: Blob, recorderFormat: RecorderFormat) => {
-    const formData = new FormData()
-    formData.append('file', audioBlob, `recording.${recorderFormat.extension}`)
-
-    try {
-      const voiceToTextUrl = buildApiUrl('/voice-to-text')
-      console.log('Sending audio to backend for transcription...', voiceToTextUrl)
-      const response = await fetch(voiceToTextUrl, {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await parseJsonResponse<VoiceToTextResponse>(response)
-      if (response.ok) {
-        const transcriptText = (data?.user_input_text || data?.text || '').trim()
-        console.log('Transcription:', transcriptText)
-        setTranscription(transcriptText || 'No speech detected from the latest recording.')
-      } else {
-        const backendError = data?.error || 'Unknown transcription error'
-        console.error('Transcription Error:', backendError)
-        setTranscription(`Transcription failed: ${backendError}`)
-      }
-    } catch (error) {
-      console.error('Failed to connect to backend:', error)
-      setTranscription('Transcription failed: unable to connect to backend.')
     }
   }
 
@@ -372,7 +362,7 @@ function App() {
         }
       }}
     >
-      
+
       <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
           <div style={{
@@ -390,7 +380,7 @@ function App() {
 
         {transcription && (
           <div style={{ padding: '15px', backgroundColor: '#2c3e50', color: 'white', borderRadius: '5px', textAlign: 'left' }}>
-            <strong>Status / AI Heard:</strong> {transcription}
+            <strong>Audio Status:</strong> {transcription}
           </div>
         )}
       </div>
@@ -399,6 +389,22 @@ function App() {
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
           <h2>Analysis Results</h2>
+
+          {analysisResult && (
+            <div style={{
+              padding: '15px',
+              backgroundColor: '#34495e',
+              color: 'white',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              textAlign: 'left',
+              lineHeight: '1.5'
+            }}>
+              <strong>Response:</strong><br />
+              {analysisResult}
+            </div>
+          )}
+
           {returnedImages.length === 0 ? (
             <div className="empty-state">
               <p>Analyzed images will appear here</p>
@@ -422,14 +428,14 @@ function App() {
               <div className="error-message">{webcamError}</div>
             ) : (
               <>
-                <video 
-                  ref={videoRef} 
-                  autoPlay 
+                <video
+                  ref={videoRef}
+                  autoPlay
                   playsInline
                   className="display-video"
                 />
-                <button 
-                  className="capture-button" 
+                <button
+                  className="capture-button"
                   onClick={captureImage}
                   title="Capture Image"
                 >
@@ -448,8 +454,8 @@ function App() {
             {capturedImages.map((img) => (
               <div key={img.id} className="thumbnail-box">
                 <img src={img.dataUrl} alt="Captured" className="thumbnail" />
-                <button 
-                  className="remove-thumbnail" 
+                <button
+                  className="remove-thumbnail"
                   onClick={() => removeCapturedImage(img.id)}
                   title="Remove"
                 >
@@ -458,8 +464,8 @@ function App() {
               </div>
             ))}
           </div>
-          <button 
-            className="send-button" 
+          <button
+            className="send-button"
             onClick={sendToBackend}
             disabled={isSending}
           >
