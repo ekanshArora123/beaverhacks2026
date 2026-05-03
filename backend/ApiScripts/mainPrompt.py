@@ -21,7 +21,37 @@ from google import genai
 from google.genai import types
 
 
-class SecondPromptMixin:
+class MainPromptMixin:
+    def run_first_prompt(
+        self,
+        image_paths: Sequence[str | Path],
+        text_source_1: str = "",
+        text_source_2: str = "",
+        task_name: str | int | None = None,
+        mode: str = "text",
+        prompt_text: str | None = None,
+        text_model: str | None = None,
+        vision_model: str | None = None,
+        voice_model: str | None = None,
+    ) -> dict[str, str | int | list[str] | None]:
+        # Prompt 1 is the technician instruction stage.
+        return self.generate(
+            image_paths=image_paths,
+            prompt_number=1,
+            text_source_1=text_source_1,
+            text_source_2=text_source_2,
+            mode=mode,
+            prompt_text=prompt_text,
+            task_name=task_name,
+            text_model=text_model,
+            vision_model=vision_model,
+            voice_model=voice_model,
+        )
+
+
+class SecondPromptMixin(MainPromptMixin):
+    """Backward-compatible alias for older imports."""
+
     def run_second_prompt(
         self,
         first_prompt_response: str,
@@ -35,31 +65,22 @@ class SecondPromptMixin:
         vision_model: str | None = None,
         voice_model: str | None = None,
     ) -> dict[str, str | int | list[str] | None]:
-        combined_source_1 = self._combine_sources(
-            ("First prompt response", first_prompt_response),
-            ("Additional context", text_source_1),
+        merged_context = "\n\n".join(
+            section
+            for section in [first_prompt_response.strip(), text_source_1.strip()]
+            if section
         )
-        return self.generate(
+        return self.run_first_prompt(
             image_paths=image_paths or [],
-            prompt_number=2,
-            text_source_1=combined_source_1,
+            text_source_1=merged_context,
             text_source_2=text_source_2,
+            task_name=task_name,
             mode=mode,
             prompt_text=prompt_text,
-            task_name=task_name,
             text_model=text_model,
             vision_model=vision_model,
             voice_model=voice_model,
         )
-
-    @staticmethod
-    def _combine_sources(*sections: tuple[str, str]) -> str:
-        formatted_sections = [
-            f"{label}:\n{value.strip()}"
-            for label, value in sections
-            if value and value.strip()
-        ]
-        return "\n\n".join(formatted_sections)
 
 
 # ── Stand-in path constants (update to match your environment) ────────────────
@@ -264,7 +285,7 @@ def send_api(prompt: str, files: list) -> str:
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
-def run_second_prompt(
+def run_main_prompt(
     user_message: str,
     schematic_image_paths: list[str],
     user_image_paths: list[str] | None = None,
@@ -272,7 +293,7 @@ def run_second_prompt(
     previous_context: str = "",
 ) -> str:
     """
-    Orchestrates the second prompt: uploads images, builds prompt, calls API.
+    Orchestrates the main prompt: uploads images, builds prompt, calls API.
 
     Returns the AI's text response (intended to be spoken to the technician).
     """
@@ -295,6 +316,23 @@ def run_second_prompt(
     return response_text
 
 
+def run_second_prompt(
+    user_message: str,
+    schematic_image_paths: list[str],
+    user_image_paths: list[str] | None = None,
+    machine_info: str = "",
+    previous_context: str = "",
+) -> str:
+    """Backward-compatible alias for older scripts."""
+    return run_main_prompt(
+        user_message=user_message,
+        schematic_image_paths=schematic_image_paths,
+        user_image_paths=user_image_paths,
+        machine_info=machine_info,
+        previous_context=previous_context,
+    )
+
+
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
@@ -306,7 +344,7 @@ def main():
         os.path.join(USER_IMAGE_DIR, "current_issue.jpg"),
     ]
 
-    response = run_second_prompt(
+    response = run_main_prompt(
         user_message="The motor is making a grinding noise when I try to start it up. "
                      "I checked the belt and it looks fine but I'm not sure what else to look at.",
         schematic_image_paths=test_schematics,

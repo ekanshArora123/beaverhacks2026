@@ -274,6 +274,14 @@ def _attach_audio_payload(value: object) -> object:
             resolved_audio_path = Path(audio_path)
             if resolved_audio_path.exists() and resolved_audio_path.is_file():
                 serialized["audio_base64"] = base64.b64encode(resolved_audio_path.read_bytes()).decode("ascii")
+
+        diagram_image_path = serialized.get("diagram_image_path")
+        if isinstance(diagram_image_path, str) and diagram_image_path:
+            resolved_diagram_path = Path(diagram_image_path)
+            if resolved_diagram_path.exists() and resolved_diagram_path.is_file():
+                serialized["diagram_image_base64"] = base64.b64encode(
+                    resolved_diagram_path.read_bytes()
+                ).decode("ascii")
         return serialized
 
     if isinstance(value, list):

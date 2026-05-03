@@ -5,9 +5,8 @@
 Build the backend prompt flow so the task pipeline is clear and each prompt script has one job.
 
 ## Main files:
-- `backend/AIBackend.py`: TODO
-- `backend/promptScripts/`: folder of all prompt scripts
-	//Do we want to combine voiceToText and textToSpeech into the same file?
+- `backend/AIBackend.py`: orchestrates prompts 1 -> 2 -> 3 -> 4
+- `backend/ApiScripts/`: folder of all prompt scripts
 
 ## Prompt Flow
 
@@ -17,22 +16,22 @@ Build the backend prompt flow so the task pipeline is clear and each prompt scri
 	Output: user text.
 
 2. `mainPrompt.py`
-	Make the text instruction.
+	Make the text instruction (`run_first_prompt`).
 	Inputs: (schematic image, user image, context text, task status text, user text) = input1
 	Output: the text response that explains what should be done.
 
 3. `diagramPrompt.py`
-	Create the schematic diagram.
+	Create the schematic diagram (`run_second_prompt`).
 	Input: input1 + (text returned from `mainPrompt.py`) = input2
 	Output: diagram image.
 
 4. `textToSpeech.py`
-	Convert the text instruction into speech.
+	Convert the text instruction into speech (`run_third_prompt`).
 	Input: text returned from `mainPrompt.py`.
 	Output: audio file path and audio mime type.
 
-4. `updatePrompt.py`
-	Update the current task state in a plain text file.
+5. `updatePrompt.py`
+	Update the current task state in a plain text file (`run_fourth_prompt`).
 	Input: task name and the updated task-status text.
 	Output: updated `taskStates/taskN/text1.txt` file and returned backend state.
 
