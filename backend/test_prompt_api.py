@@ -16,9 +16,10 @@ BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from promptScripts.fourthPrompt import StateUpdateMixin
-from promptScripts.mainPrompt import MainPromptMixin
-from promptScripts.thirdPrompt import TTSMixin
+from promptScripts.diagramPrompt import MainPromptMixin
+from promptScripts.mainPrompt import SecondPromptMixin
+from promptScripts.textToVoice import TTSMixin
+from promptScripts.updatePrompt import StateUpdateMixin
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n"
@@ -131,10 +132,10 @@ def test_prompt_1_run_first_prompt() -> dict[str, str]:
 
 
 def test_prompt_2_run_second_prompt() -> dict[str, str]:
-    second_prompt_module = importlib.import_module("promptScripts.secondPrompt")
+    second_prompt_module = importlib.import_module("promptScripts.mainPrompt")
     second_prompt_mixin = getattr(second_prompt_module, "SecondPromptMixin", None)
     if second_prompt_mixin is None or not hasattr(second_prompt_mixin, "run_second_prompt"):
-        raise SkipTest("promptScripts.secondPrompt does not define SecondPromptMixin.run_second_prompt yet.")
+        raise SkipTest("promptScripts.mainPrompt does not define SecondPromptMixin.run_second_prompt yet.")
 
     prompt_two_harness_class = type("PromptTwoHarness", (second_prompt_mixin, PromptHarness), {})
 
