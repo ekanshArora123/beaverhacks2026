@@ -7,13 +7,59 @@ Builds a prompt for Gemini and sends it via sendAPI.
 Output is spoken-style text guidance for the technician.
 """
 
-from AIAPICall import sendAPI
+try:
+    from AIAPICall import sendAPI
+except ImportError:
+    sendAPI = None
+
 import os
 import time
 from pathlib import Path
+from typing import Sequence
 
 from google import genai
 from google.genai import types
+
+
+class SecondPromptMixin:
+    def run_second_prompt(
+        self,
+        first_prompt_response: str,
+        task_name: str | int | None = None,
+        text_source_1: str = "",
+        text_source_2: str = "",
+        image_paths: Sequence[str | Path] | None = None,
+        mode: str = "text",
+        prompt_text: str | None = None,
+        text_model: str | None = None,
+        vision_model: str | None = None,
+        voice_model: str | None = None,
+    ) -> dict[str, str | int | list[str] | None]:
+        combined_source_1 = self._combine_sources(
+            ("First prompt response", first_prompt_response),
+            ("Additional context", text_source_1),
+        )
+        return self.generate(
+            image_paths=image_paths or [],
+            prompt_number=2,
+            text_source_1=combined_source_1,
+            text_source_2=text_source_2,
+            mode=mode,
+            prompt_text=prompt_text,
+            task_name=task_name,
+            text_model=text_model,
+            vision_model=vision_model,
+            voice_model=voice_model,
+        )
+
+    @staticmethod
+    def _combine_sources(*sections: tuple[str, str]) -> str:
+        formatted_sections = [
+            f"{label}:\n{value.strip()}"
+            for label, value in sections
+            if value and value.strip()
+        ]
+        return "\n\n".join(formatted_sections)
 
 
 # ── Stand-in path constants (update to match your environment) ────────────────

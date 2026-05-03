@@ -27,24 +27,24 @@ except ImportError:
 	from config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
-	from .promptScripts.mainPrompt import MainPromptMixin
+	from .promptScripts.diagramPrompt import MainPromptMixin
 except ImportError:
-	from promptScripts.mainPrompt import MainPromptMixin
+	from promptScripts.diagramPrompt import MainPromptMixin
 
 try:
-	from .promptScripts.secondPrompt import SecondPromptMixin
+	from .promptScripts.mainPrompt import SecondPromptMixin
 except ImportError:
-	from promptScripts.secondPrompt import SecondPromptMixin
+	from promptScripts.mainPrompt import SecondPromptMixin
 
 try:
-	from .promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from .promptScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
 except ImportError:
-	from promptScripts.fourthPrompt import StateUpdateMixin, TASK_STATES_DIR
+	from promptScripts.updatePrompt import StateUpdateMixin, TASK_STATES_DIR
 
 try:
-	from .promptScripts.thirdPrompt import TTSMixin
+	from .promptScripts.textToVoice import TTSMixin
 except ImportError:
-	from promptScripts.thirdPrompt import TTSMixin
+	from promptScripts.textToVoice import TTSMixin
 
 
 def load_api_key() -> str:
