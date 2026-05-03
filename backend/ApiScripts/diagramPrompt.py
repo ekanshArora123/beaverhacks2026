@@ -13,9 +13,9 @@ from google import genai
 from google.genai import types
 
 try:
-	from .docTools import get_doc_tools
+	from .docTools import get_cached_content_name_for_text, get_doc_tools
 except ImportError:
-	from docTools import get_doc_tools
+	from docTools import get_cached_content_name_for_text, get_doc_tools
 
 SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
@@ -33,7 +33,7 @@ DEFAULT_PROMPTS = {
 	),
 	2: (
 		"Create a technician-facing annotated image that shows the next action if rlevent."
-		"Use directional, arrows, short labels, and diagram-style overlays so the operator
+		"Use directional, arrows, short labels, and diagram-style overlays so the operator "
 		"can immediately see what to do (inspect, press, loosen, tighten, replace, etc)"
 	),
 }
@@ -257,11 +257,17 @@ class DiagramPromptMixin:
 	def _generate_text_response(self) -> str:
 		uploaded_files = self._upload_images()
 		self.selected_model = self.vision_model if uploaded_files else self.text_model
+		cached_content_name = get_cached_content_name_for_text(
+			self.task_name or "",
+			self.text_source_1,
+			self.text_source_2,
+		)
 		response = self.get_client().models.generate_content(
 			model=self.selected_model,
 			contents=[self._build_prompt_payload(), *uploaded_files],
 			config=types.GenerateContentConfig(
 				tools=get_doc_tools(),
+				cached_content=cached_content_name,
 			),
 		)
 		response_text = response.text or self._collect_text_from_parts(response)
