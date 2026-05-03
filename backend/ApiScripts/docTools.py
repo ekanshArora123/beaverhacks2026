@@ -27,7 +27,8 @@ _MACHINE_DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "machine_doc
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff"}
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml"}
 _PDF_SUFFIXES = {".pdf"}
-_PREFER_MARKDOWN = True
+# Toggle to prefer .md companions over .pdf files.
+PREFER_MARKDOWN_DOCS = True
 
 # Large-PDF threshold (pages). Above this we return a summary instead of full text.
 _LARGE_PDF_PAGE_THRESHOLD = 50
@@ -121,7 +122,7 @@ def list_documents(machine_name: str) -> list[dict]:
     for entry in all_files:
         # Prefer markdown companions over PDFs for now.
         if (
-            _PREFER_MARKDOWN
+            PREFER_MARKDOWN_DOCS
             and entry.suffix.lower() == ".pdf"
             and entry.stem.lower() in md_stems
         ):
@@ -170,7 +171,7 @@ def read_document(machine_name: str, filename: str) -> str:
         print(f"[docTools]   {msg}")
         return f"Error: {msg}"
 
-    if _PREFER_MARKDOWN and file_path.suffix.lower() == ".pdf":
+    if PREFER_MARKDOWN_DOCS and file_path.suffix.lower() == ".pdf":
         md_candidate = file_path.with_suffix(".md")
         if md_candidate.exists() and md_candidate.is_file():
             print(f"[docTools]   using markdown companion: {md_candidate.name}")
