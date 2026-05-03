@@ -49,9 +49,17 @@ GEMINI_KEY = "your-api-key-here"
 
 ### 4. Start the Servers
 
+From the repo root on Windows PowerShell, you can launch both services with one command:
+
+```powershell
+.\start-dev.ps1
+```
+
+This opens one PowerShell window for the backend and one for the frontend.
+
 **Terminal 1 - Start Flask Backend:**
 ```bash
-python programAPI.py
+python backend/start_server.py
 ```
 - Runs on http://localhost:5000
 - Provides `/analyze` and `/generate` endpoints
