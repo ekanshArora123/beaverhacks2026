@@ -12,7 +12,6 @@ from typing import Literal, Sequence
 from google import genai
 from google.genai import types
 
-
 SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
 	".jpeg",
