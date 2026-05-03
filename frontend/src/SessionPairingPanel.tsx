@@ -56,7 +56,8 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
         if (lanAddresses.length > 0) {
           setResolvedOrigin({
             origin: buildOriginFromHostname(lanAddresses[0]),
-            warning: 'Laptop opened the app at localhost — QR rewritten to your LAN IP. If the phone still cannot connect, open the laptop browser at that LAN URL too so the dev server stays consistent.',
+            warning:
+              'Laptop opened the app at localhost — QR uses your LAN IP. The dev server listens on all interfaces so phones can reach it. If the phone hangs loading: allow Node.js through Windows Firewall for port 5173, and open this same LAN URL on the laptop once to verify.',
             suggestedAddresses: lanAddresses,
           })
         } else {
@@ -141,8 +142,9 @@ function SessionPairingPanel({ state, code, errorMessage, lastPayloadAt }: Sessi
       )}
 
       <p className="pairing-hint">
-        Scan the QR with your phone, or open the URL above. Same Wi-Fi network required (or use ngrok).
-        Camera/mic on Android Chrome needs HTTPS unless you're on localhost.
+        Scan the QR with your phone, or open the URL above. Same Wi‑Fi required (or use ngrok).
+        If loading never finishes, the LAN IP could not reach this machine — check firewall for port 5173.
+        Camera/mic on Android Chrome usually needs HTTPS unless you opened an explicit LAN HTTP exception.
       </p>
     </div>
   )
