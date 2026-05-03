@@ -10,3 +10,6 @@ Context:
 
     Gain familiarity with the backend ./AIBackend
 
+    Do not make any changes to AIBackend. 
+
+    Add a button on the video feed to 'capture image' 
