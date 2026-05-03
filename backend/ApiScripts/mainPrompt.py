@@ -173,12 +173,6 @@ Use your general knowledge of this machine to supplement details, but never cont
 
 {machine_section}
 
-CRITICAL: If you do not have sufficient information about this specific machine, either from the details above \
-or from your own training data, to provide a safe and accurate answer, you MUST clearly tell the technician \
-that you do not have enough information and advise them to consult the manufacturer documentation, \
-the machine manual, or a specialist. Never guess or speculate about safety-critical procedures, \
-wiring, pressures, voltages, or chemical processes.
-
 === PREVIOUS EXPERIENCE CONTEXT ===
 The following is a summary of the technician's previous interactions and documented experiences with this machine. \
 Use this to avoid repeating steps already taken, build on previous troubleshooting progress, \
@@ -219,9 +213,6 @@ observations to your guidance. Do not ignore the images.
 
 If the technician is documenting something rather than asking for help, acknowledge what they have \
 recorded, confirm the details clearly, and note anything that seems unusual or worth flagging.
-
-Prioritize safety above all else. If any recommended action could be dangerous, state the safety \
-precaution first before giving the instruction. If you are unsure whether an action is safe, say so.
 
 If you need more information from the technician to help them effectively, ask specific follow-up \
 questions. Tell them exactly what to check, measure, or describe.
