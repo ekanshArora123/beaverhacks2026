@@ -216,7 +216,7 @@ def send_to_ui():
     
     image_file = request.files['image']
     
-    # Forward to ui-v1 API
+    # Forward to frontend API
     files = {'image': image_file}
     response = requests.post(
         'http://localhost:3001/api/upload-image',

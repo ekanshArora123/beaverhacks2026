@@ -1,0 +1,15 @@
+
+
+
+Need audio, reformat page and make test call to backend. 
+
+
+Oliver: 
+    Collect audio and reformat
+    
+
+Rob: 
+    Make test call to backend. 
+    Read through backend/frontend startup
+    Make sure to pip/npm install 
+    

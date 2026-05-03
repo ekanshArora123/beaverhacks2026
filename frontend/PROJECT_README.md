@@ -1,4 +1,4 @@
-# UI-V1 - Dynamic Graphics Display
+# Frontend - Dynamic Graphics Display
 
 A React TypeScript application that displays three dynamic graphics boxes with API endpoints for receiving images from external sources (like Python Flask servers).
 
@@ -18,14 +18,14 @@ You need to run **two terminals**:
 
 **Terminal 1 - Backend API Server:**
 ```bash
-cd ui-v1
+cd frontend
 npm run server
 ```
 This starts the API server on http://localhost:3001
 
 **Terminal 2 - Frontend Development Server:**
 ```bash
-cd ui-v1
+cd frontend
 npm run dev
 ```
 This starts the React app on http://localhost:5173
@@ -34,7 +34,7 @@ This starts the React app on http://localhost:5173
 
 If you haven't installed dependencies yet:
 ```bash
-cd ui-v1
+cd frontend
 npm install
 ```
 
@@ -85,7 +85,7 @@ python send_image_example.py path/to/image.png example1
 ```python
 import requests
 
-# Send image to ui-v1
+# Send image to frontend
 with open('image.png', 'rb') as f:
     files = {'image': f}
     response = requests.post('http://localhost:3001/api/upload-image', files=files)
@@ -101,7 +101,7 @@ When you first load the application, your browser will ask for permission to acc
 ## Project Structure
 
 ```
-ui-v1/
+frontend/
 ├── server/
 │   └── index.js          # Express API server
 ├── src/
