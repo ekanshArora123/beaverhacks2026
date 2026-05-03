@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { describeMobileCameraMicFailure } from '../utils/mediaDeviceErrors'
 
 export interface CapturedImage {
   id: string
@@ -39,6 +40,57 @@ function extensionFromMime(mime: string): string {
   return 'webm'
 }
 
+/** Try several constraints: combined audio+mic breaks on some phones; insecure HTTPS can block mic alone. */
+async function negotiateCaptureStream(params: {
+  facingMode: 'user' | 'environment'
+}): Promise<{ stream: MediaStream }> {
+  const { facingMode } = params
+  const rear = facingMode === 'environment'
+
+  type Attempt = { description: string; constraints: MediaStreamConstraints }
+
+  const attempts: Attempt[] = [
+    {
+      description: 'rear + mic',
+      constraints: rear
+        ? { video: { facingMode: { ideal: 'environment' } }, audio: true }
+        : { video: true, audio: true },
+    },
+    {
+      description: 'any camera + mic',
+      constraints: { video: true, audio: true },
+    },
+    {
+      description: 'rear video only',
+      constraints: rear
+        ? { video: { facingMode: { ideal: 'environment' } }, audio: false }
+        : { video: true, audio: false },
+    },
+    {
+      description: 'any video only',
+      constraints: { video: true, audio: false },
+    },
+  ]
+
+  let lastError: unknown
+  const md = navigator.mediaDevices
+  if (!md?.getUserMedia) {
+    throw new Error('getUserMedia is not supported on this page')
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const stream = await md.getUserMedia(attempt.constraints)
+      return { stream }
+    } catch (error) {
+      lastError = error
+      console.warn(`useCaptureSession: attempt "${attempt.description}" failed`, error)
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 export interface UseCaptureSessionOptions {
   facingMode?: 'user' | 'environment'
   enabled?: boolean
@@ -48,6 +100,12 @@ export interface UseCaptureSessionResult {
   videoRef: React.RefObject<HTMLVideoElement | null>
   canvasRef: React.RefObject<HTMLCanvasElement | null>
   webcamError: string | null
+  insecureContextWarning: boolean
+  isMediaReady: boolean
+  microphoneAvailable: boolean
+  micOnlyBlockedHint: boolean
+  isRequestingMedia: boolean
+  requestMedia: () => Promise<void>
   capturedImages: CapturedImage[]
   setCapturedImages: React.Dispatch<React.SetStateAction<CapturedImage[]>>
   isRecording: boolean
@@ -67,93 +125,165 @@ export function useCaptureSession(options: UseCaptureSessionOptions = {}): UseCa
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const activeStreamRef = useRef<MediaStream | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
 
+  const insecureContextWarning =
+    typeof window !== 'undefined' && !!window.location?.hostname && !window.isSecureContext
+
   const [webcamError, setWebcamError] = useState<string | null>(null)
+  const [isMediaReady, setIsMediaReady] = useState(false)
+  const [microphoneAvailable, setMicrophoneAvailable] = useState(false)
+  const [micOnlyBlockedHint, setMicOnlyBlockedHint] = useState(false)
+  const [isRequestingMedia, setIsRequestingMedia] = useState(false)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
   const [recorderFormat, setRecorderFormat] = useState<RecorderFormat | null>(null)
 
-  useEffect(() => {
-    if (!enabled) {
-      setRecorderFormat(null)
-      recorderFormatRef.current = null
+  const releaseMediaResources = useCallback(() => {
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject = null
+    }
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach((track) => track.stop())
+      activeStreamRef.current = null
+    }
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+    }
+    mediaRecorderRef.current = null
+    recorderFormatRef.current = null
+    setRecorderFormat(null)
+    setIsMediaReady(false)
+    setMicrophoneAvailable(false)
+    setMicOnlyBlockedHint(false)
+    setIsRecording(false)
+    setHasAudioRecording(false)
+    audioChunksRef.current = []
+  }, [])
+
+  const attachStreamToVideo = useCallback((stream: MediaStream) => {
+    const video = videoRef.current
+    if (!video) {
       return
     }
+    video.srcObject = stream
+    video.muted = true
+    // Some Android builds need an explicit play() after setting srcObject.
+    void video.play().catch(() => {
+      // Ignore autoplay race; user gesture already happened in requestMedia().
+    })
+  }, [])
 
-    let activeStream: MediaStream | null = null
-
-    const enableMediaCapture = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: facingMode === 'user' ? true : { facingMode: { ideal: 'environment' } },
-          audio: true,
-        })
-        activeStream = stream
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.muted = true
-        }
-
-        let chosenFormat = resolveRecorderFormat()
-        recorderFormatRef.current = chosenFormat
-
-        const audioStream = new MediaStream(stream.getAudioTracks())
-        let mediaRecorder: MediaRecorder
-        try {
-          mediaRecorder = new MediaRecorder(audioStream, { mimeType: chosenFormat.mimeType })
-        } catch {
-          mediaRecorder = new MediaRecorder(audioStream)
-          const browserMime = mediaRecorder.mimeType || chosenFormat.mimeType
-          const inferred = RECORDER_FORMAT_CANDIDATES.find((candidate) => candidate.mimeType === browserMime)
-          chosenFormat = inferred ?? {
-            mimeType: browserMime || 'audio/webm',
-            extension: extensionFromMime(browserMime || ''),
-          }
-          recorderFormatRef.current = chosenFormat
-        }
-        mediaRecorderRef.current = mediaRecorder
-        setRecorderFormat(chosenFormat)
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data)
-          }
-        }
-
-        mediaRecorder.onstop = () => {
-          if (audioChunksRef.current.length > 0) {
-            setHasAudioRecording(true)
-          }
-        }
-      } catch (error) {
-        console.error('Error accessing webcam/microphone:', error)
-        setWebcamError('Unable to access webcam/microphone. Please grant permissions.')
-      }
+  useEffect(() => {
+    if (!isMediaReady || !activeStreamRef.current) {
+      return
     }
+    attachStreamToVideo(activeStreamRef.current)
+  }, [attachStreamToVideo, isMediaReady])
 
-    void enableMediaCapture()
+  useEffect(() => {
+    if (!enabled) {
+      releaseMediaResources()
+      setWebcamError(null)
+    }
+  }, [enabled, releaseMediaResources])
 
-    return () => {
-      if (activeStream) {
-        activeStream.getTracks().forEach((track) => track.stop())
-      }
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
-        stream.getTracks().forEach((track) => track.stop())
-        videoRef.current.srcObject = null
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop()
-      }
+  useEffect(() => () => releaseMediaResources(), [releaseMediaResources])
+
+  const attachRecorderForStream = useCallback((stream: MediaStream) => {
+    const audioTracks = stream.getAudioTracks()
+    if (audioTracks.length === 0) {
       mediaRecorderRef.current = null
       recorderFormatRef.current = null
       setRecorderFormat(null)
+      setMicrophoneAvailable(false)
+      return
     }
-  }, [enabled, facingMode])
+
+    setMicrophoneAvailable(true)
+
+    let chosenFormat = resolveRecorderFormat()
+    recorderFormatRef.current = chosenFormat
+
+    const audioStream = new MediaStream(audioTracks)
+    let mediaRecorder: MediaRecorder
+    try {
+      mediaRecorder = new MediaRecorder(audioStream, { mimeType: chosenFormat.mimeType })
+    } catch {
+      mediaRecorder = new MediaRecorder(audioStream)
+      const browserMime = mediaRecorder.mimeType || chosenFormat.mimeType
+      const inferred = RECORDER_FORMAT_CANDIDATES.find((candidate) => candidate.mimeType === browserMime)
+      chosenFormat = inferred ?? {
+        mimeType: browserMime || 'audio/webm',
+        extension: extensionFromMime(browserMime || ''),
+      }
+      recorderFormatRef.current = chosenFormat
+    }
+    mediaRecorderRef.current = mediaRecorder
+    setRecorderFormat(chosenFormat)
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data)
+      }
+    }
+
+    mediaRecorder.onstop = () => {
+      if (audioChunksRef.current.length > 0) {
+        setHasAudioRecording(true)
+      }
+    }
+  }, [])
+
+  const requestMedia = useCallback(async () => {
+    if (!enabled) {
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setWebcamError('Browser does not support camera/microphone access on this page.')
+      return
+    }
+
+    releaseMediaResources()
+    setWebcamError(null)
+    setMicOnlyBlockedHint(false)
+    setIsRequestingMedia(true)
+
+    try {
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        setWebcamError(
+          [
+            'This page is not a secure HTTPS context — Chrome blocks camera on mobile HTTP.',
+            'Run npm run dev:https (or start-dev.ps1 -DevHttps), accept any certificate warnings, reopen this URL, then tap the button again.',
+            'Or expose port 5173 with ngrok / Cloudflare Tunnel and use their https link.',
+          ].join('\n'),
+        )
+        setIsMediaReady(false)
+        return
+      }
+
+      const { stream } = await negotiateCaptureStream({ facingMode })
+      activeStreamRef.current = stream
+      attachStreamToVideo(stream)
+
+      const hasMic = stream.getAudioTracks().length > 0
+      setMicOnlyBlockedHint(stream.getVideoTracks().length > 0 && !hasMic)
+      attachRecorderForStream(stream)
+      setIsMediaReady(true)
+    } catch (error) {
+      console.error('Error accessing webcam/microphone:', error)
+      setWebcamError(describeMobileCameraMicFailure(error))
+      setIsMediaReady(false)
+      setMicOnlyBlockedHint(false)
+    } finally {
+      setIsRequestingMedia(false)
+    }
+  }, [attachRecorderForStream, attachStreamToVideo, enabled, facingMode, releaseMediaResources])
 
   const captureImage = () => {
     if (!videoRef.current || !canvasRef.current) return
@@ -215,6 +345,12 @@ export function useCaptureSession(options: UseCaptureSessionOptions = {}): UseCa
     videoRef,
     canvasRef,
     webcamError,
+    insecureContextWarning,
+    isMediaReady,
+    microphoneAvailable,
+    micOnlyBlockedHint,
+    isRequestingMedia,
+    requestMedia,
     capturedImages,
     setCapturedImages,
     isRecording,

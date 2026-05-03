@@ -1,4 +1,5 @@
 import { getProgramApiBaseUrl } from './programApiBase'
+import { withTunnelFetchInit } from './tunnelFetchInit'
 
 export interface PhonePayload {
   image_data_urls: string[]
@@ -20,7 +21,7 @@ export interface HostInfo {
 }
 
 export async function fetchHostInfo(): Promise<HostInfo> {
-  const response = await fetch(buildSessionUrl('/host-info'))
+  const response = await fetch(buildSessionUrl('/host-info'), withTunnelFetchInit())
   if (!response.ok) {
     throw new Error(`Failed to fetch host info: ${response.status}`)
   }
@@ -28,7 +29,10 @@ export async function fetchHostInfo(): Promise<HostInfo> {
 }
 
 export async function createSession(): Promise<string> {
-  const response = await fetch(buildSessionUrl('/session/new'), { method: 'POST' })
+  const response = await fetch(
+    buildSessionUrl('/session/new'),
+    withTunnelFetchInit({ method: 'POST' }),
+  )
   if (!response.ok) {
     throw new Error(`Failed to create session: ${response.status}`)
   }
@@ -40,10 +44,10 @@ export async function createSession(): Promise<string> {
 }
 
 export async function postSessionInput(code: string, formData: FormData): Promise<{ image_count: number; has_audio: boolean; has_text: boolean }> {
-  const response = await fetch(buildSessionUrl(`/session/${code}/input`), {
-    method: 'POST',
-    body: formData,
-  })
+  const response = await fetch(
+    buildSessionUrl(`/session/${code}/input`),
+    withTunnelFetchInit({ method: 'POST', body: formData }),
+  )
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
     throw new Error(`Failed to post session input: ${response.status} ${errorText}`)
@@ -53,7 +57,7 @@ export async function postSessionInput(code: string, formData: FormData): Promis
 
 export async function pollSessionPending(code: string, signal: AbortSignal, timeoutSeconds = 25): Promise<PhonePayload | null> {
   const url = buildSessionUrl(`/session/${code}/pending?timeout=${timeoutSeconds}`)
-  const response = await fetch(url, { signal })
+  const response = await fetch(url, withTunnelFetchInit({ signal }))
   if (response.status === 204) {
     return null
   }
