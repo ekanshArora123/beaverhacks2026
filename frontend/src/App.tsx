@@ -92,6 +92,8 @@ function App() {
   const [returnedImages, setReturnedImages] = useState<string[]>([])
   const [analysisResult, setAnalysisResult] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const [sendProgress, setSendProgress] = useState(0)
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [isRecording, setIsRecording] = useState(false)
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
@@ -293,6 +295,51 @@ function App() {
     }
 
     setIsSending(true)
+    setSendProgress(0)
+
+    // Simulated progress bar: accelerates early, slows down near the end
+    let currentProgress = 0
+    let hasSaidMidpoint = false
+    const midpointPhrases = [
+      "Almost got it.",
+      "Nearly there.",
+      "Bingo. Sending the data over now.",
+      "Just a little longer.",
+      "Processing your request.",
+      "Crunching the data now.",
+    ]
+    progressIntervalRef.current = setInterval(() => {
+      currentProgress += currentProgress < 60 ? 3 : currentProgress < 85 ? 1 : 0.3
+      if (currentProgress > 95) currentProgress = 95 // Never hit 100 until real response
+      setSendProgress(Math.round(currentProgress))
+
+      // Speak a midpoint phrase once when we cross 50%
+      if (!hasSaidMidpoint && currentProgress >= 50) {
+        hasSaidMidpoint = true
+        const midPhrase = midpointPhrases[Math.floor(Math.random() * midpointPhrases.length)]
+        window.speechSynthesis.cancel()
+        const midUtterance = new SpeechSynthesisUtterance(midPhrase)
+        midUtterance.rate = 1.1
+        window.speechSynthesis.speak(midUtterance)
+      }
+    }, 300)
+
+    // Immediately speak a random idle phrase so the user doesn't sit in silence
+    const idlePhrases = [
+      "Let me take a look at that for you.",
+      "Analyzing your image now.",
+      "One moment, let me check that.",
+      "Looking into it right now.",
+      "Give me just a second to figure this out.",
+      "On it! Let me see what we've got here.",
+      "Searching for the best solution.",
+      "Let me help you with that.",
+    ]
+    const randomPhrase = idlePhrases[Math.floor(Math.random() * idlePhrases.length)]
+    window.speechSynthesis.cancel()
+    const idleUtterance = new SpeechSynthesisUtterance(randomPhrase)
+    idleUtterance.rate = 1.1
+    window.speechSynthesis.speak(idleUtterance)
 
     try {
       const formData = new FormData()
@@ -406,6 +453,13 @@ function App() {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
       alert(`Error: ${errorMessage}\n\nMake sure:\n1. Flask server is running (python backend/start_server.py)\n2. You have set GEMINI_API_KEY`)
     } finally {
+      // Complete the progress bar and clean up
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
+      setSendProgress(100)
+      setTimeout(() => setSendProgress(0), 600) // Brief flash at 100% before hiding
       setIsSending(false)
     }
   }
@@ -420,6 +474,15 @@ function App() {
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
           <h2>Analysis Results</h2>
+
+          {isSending && (
+            <div className="progress-bar-container">
+              <div className="progress-bar-label">Analyzing... {sendProgress}%</div>
+              <div className="progress-bar-track">
+                <div className="progress-bar-fill" style={{ width: `${sendProgress}%` }} />
+              </div>
+            </div>
+          )}
 
           {analysisResult && (
             <div style={{
