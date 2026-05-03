@@ -10,8 +10,9 @@ function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
-  
+
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
   const [returnedImages, setReturnedImages] = useState<string[]>([])
@@ -52,6 +53,7 @@ function App() {
 
         // --- Automated Voice Activity Detection (VAD) ---
         const audioContext = new AudioContext()
+        audioContextRef.current = audioContext
         const analyser = audioContext.createAnalyser()
         const microphone = audioContext.createMediaStreamSource(stream)
 
@@ -60,26 +62,32 @@ function App() {
         microphone.connect(analyser)
 
         let isSpeaking = false
-        let silenceTimer: NodeJS.Timeout | null = null
+        let silenceTimer: ReturnType<typeof setTimeout> | null = null
+        let animationFrameId: number
         const array = new Uint8Array(analyser.frequencyBinCount)
 
         const checkAudioLevel = () => {
           analyser.getByteFrequencyData(array)
 
-          let values = 0
+          let maxVolume = 0
           for (let i = 0; i < array.length; i++) {
-            values += array[i]
+            if (array[i] > maxVolume) {
+              maxVolume = array[i]
+            }
           }
-          const average = values / array.length
 
-          // VOLUME THRESHOLD: Adjust this between 5-30 depending on how noisy your hackathon room is!
+          // VOLUME THRESHOLD: Volume ranges from 0 to 255. 
           const THRESHOLD = 10
 
-          if (average > THRESHOLD) {
+          if (maxVolume > THRESHOLD) {
             // User is speaking
             if (!isSpeaking) {
               isSpeaking = true
               if (mediaRecorder.state === "inactive") {
+                // Ensure audio context is running (browsers suspend it if no user interaction occurred)
+                if (audioContext.state === 'suspended') {
+                  audioContext.resume()
+                }
                 mediaRecorder.start()
                 setIsRecording(true)
                 setTranscription("Listening...")
@@ -105,8 +113,18 @@ function App() {
             }
           }
 
-          // Loop forever
-          requestAnimationFrame(checkAudioLevel)
+          // Debug log (uncomment if you want to see exact volume in dev tools)
+          // console.log("Max Volume:", maxVolume, "Context State:", audioContext.state)
+
+          // Debug log - open DevTools (F12) to see this!
+          // If this says 0 continuously, your browser is using the wrong microphone 
+          // or the audio engine is still suspended.
+          if (maxVolume > 0 || audioContext.state === 'suspended') {
+            console.log("Max Volume:", maxVolume, " | Context State:", audioContext.state)
+          }
+
+          // Loop forever, save ID for cleanup
+          animationFrameId = requestAnimationFrame(checkAudioLevel)
         }
 
         // Start the listening loop
@@ -122,11 +140,14 @@ function App() {
 
     // Cleanup: stop video and audio streams when component unmounts
     return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId)
+      if (audioContextRef.current) audioContextRef.current.close()
+      
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
       }
-      
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
@@ -187,7 +208,7 @@ function App() {
       const formData = new FormData()
       formData.append('file', imageBlob, 'capture.png')
       formData.append('prompt', 'Analyze this image and describe what you see.')
-      
+
       // Call backend
       console.log('Calling backend at http://127.0.0.1:5000/analyze')
       const apiResponse = await fetch('http://127.0.0.1:5000/analyze', {
@@ -205,7 +226,7 @@ function App() {
 
       const result = await apiResponse.json()
       console.log('Backend response:', result)
-      
+
       if (result.audio) {
         const audioUrl = `data:audio/webm;base64,${result.audio}`
         const audio = new Audio(audioUrl)
@@ -256,8 +277,16 @@ function App() {
   }
 
   return (
-    <div className="app">
-      
+    <div 
+      className="app" 
+      onClick={() => {
+        if (audioContextRef.current?.state === 'suspended') {
+          audioContextRef.current.resume()
+          console.log("AudioContext resumed by user interaction!")
+        }
+      }}
+    >
+
       <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
           <div style={{
@@ -307,14 +336,14 @@ function App() {
               <div className="error-message">{webcamError}</div>
             ) : (
               <>
-                <video 
-                  ref={videoRef} 
-                  autoPlay 
+                <video
+                  ref={videoRef}
+                  autoPlay
                   playsInline
                   className="display-video"
                 />
-                <button 
-                  className="capture-button" 
+                <button
+                  className="capture-button"
                   onClick={captureImage}
                   title="Capture Image"
                 >
@@ -333,8 +362,8 @@ function App() {
             {capturedImages.map((img) => (
               <div key={img.id} className="thumbnail-box">
                 <img src={img.dataUrl} alt="Captured" className="thumbnail" />
-                <button 
-                  className="remove-thumbnail" 
+                <button
+                  className="remove-thumbnail"
                   onClick={() => removeCapturedImage(img.id)}
                   title="Remove"
                 >
@@ -343,8 +372,8 @@ function App() {
               </div>
             ))}
           </div>
-          <button 
-            className="send-button" 
+          <button
+            className="send-button"
             onClick={sendToBackend}
             disabled={isSending}
           >
