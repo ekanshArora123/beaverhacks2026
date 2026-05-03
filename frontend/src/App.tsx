@@ -34,7 +34,23 @@ interface PhonePayloadInputs {
 type DiagramSource = 'user' | 'schematic'
 
 const DEFAULT_ANALYZE_PROMPT = 'Analyze this image and describe what you see.'
-const PROGRAM_API_BASE_URL = ((import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim() || 'http://127.0.0.1:5000').replace(/\/+$/, '')
+const BACKEND_PORT = '5000'
+
+function deriveApiBaseUrl(): string {
+  const configured = (import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim()
+  if (configured) {
+    return configured.replace(/\/+$/, '')
+  }
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const { protocol, hostname } = window.location
+    return `${protocol}//${hostname}:${BACKEND_PORT}`
+  }
+
+  return `http://127.0.0.1:${BACKEND_PORT}`
+}
+
+const PROGRAM_API_BASE_URL = deriveApiBaseUrl()
 
 const RECORDER_FORMAT_CANDIDATES: RecorderFormat[] = [
   { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },

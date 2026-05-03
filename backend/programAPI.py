@@ -8,6 +8,7 @@ and exposes explicit prompt-stage routes (`/prompts/*`) that execute the plan:
 
 import base64
 import os
+import socket
 import tempfile
 import time
 import traceback
@@ -593,6 +594,45 @@ def run_all_prompts():
         return jsonify(serialized)
     except Exception as exc:
         return _json_error_response(exc)
+
+
+def _detect_lan_ipv4_addresses() -> list[str]:
+    """Best-effort enumeration of the host's non-loopback IPv4 addresses.
+
+    Used by the laptop frontend to rewrite the QR pairing URL when the user
+    opened the app on `localhost` (a URL the phone cannot reach).
+    """
+    addresses: list[str] = []
+
+    try:
+        outbound_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            outbound_socket.connect(("8.8.8.8", 80))
+            primary_address = outbound_socket.getsockname()[0]
+        finally:
+            outbound_socket.close()
+        if primary_address and not primary_address.startswith("127."):
+            addresses.append(primary_address)
+    except OSError:
+        pass
+
+    try:
+        host_name = socket.gethostname()
+        for info in socket.getaddrinfo(host_name, None, socket.AF_INET):
+            candidate = info[4][0]
+            if candidate.startswith("127."):
+                continue
+            if candidate not in addresses:
+                addresses.append(candidate)
+    except (OSError, socket.gaierror):
+        pass
+
+    return addresses
+
+
+@app.route("/host-info", methods=["GET"])
+def host_info():
+    return jsonify({"lan_addresses": _detect_lan_ipv4_addresses()})
 
 
 @app.route("/session/new", methods=["POST"])

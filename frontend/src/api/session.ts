@@ -8,11 +8,39 @@ export interface PhonePayload {
   received_at: number
 }
 
-const PROGRAM_API_BASE_URL = ((import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim() || 'http://127.0.0.1:5000').replace(/\/+$/, '')
+const BACKEND_PORT = '5000'
+
+function deriveApiBaseUrl(): string {
+  const configured = (import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim()
+  if (configured) {
+    return configured.replace(/\/+$/, '')
+  }
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const { protocol, hostname } = window.location
+    return `${protocol}//${hostname}:${BACKEND_PORT}`
+  }
+
+  return `http://127.0.0.1:${BACKEND_PORT}`
+}
+
+const PROGRAM_API_BASE_URL = deriveApiBaseUrl()
 
 function buildSessionUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return `${PROGRAM_API_BASE_URL}${normalizedPath}`
+}
+
+export interface HostInfo {
+  lan_addresses: string[]
+}
+
+export async function fetchHostInfo(): Promise<HostInfo> {
+  const response = await fetch(buildSessionUrl('/host-info'))
+  if (!response.ok) {
+    throw new Error(`Failed to fetch host info: ${response.status}`)
+  }
+  return await response.json() as HostInfo
 }
 
 export async function createSession(): Promise<string> {
