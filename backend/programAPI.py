@@ -48,6 +48,11 @@ except ImportError:
     from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
+    from .ApiScripts.docTools import prime_machine_doc_caches
+except ImportError:
+    from ApiScripts.docTools import prime_machine_doc_caches
+
+try:
     from . import sessionStore
 except ImportError:
     import sessionStore
@@ -400,19 +405,26 @@ def analyze():
             else:
                 diagram_image_paths = user_uploaded_paths or all_image_paths
 
-            second_result = backend.run_second_prompt(
-                first_prompt_response=str(first_result.get("response_text") or ""),
-                task_name=task_name,
-                text_source_1=text_source_1,
-                text_source_2=text_source_2,
-                image_paths=diagram_image_paths,
-                mode="text",
-                prompt_text=None,
-                text_model=model_overrides["text_model"],
-                vision_model=model_overrides["vision_model"],
-                voice_model=model_overrides["voice_model"],
-                diagram_source=diagram_source,
-            )
+            # Skip diagram generation when no images are available — the
+            # vision model needs at least one image to produce an annotated
+            # diagram.  Text/audio-only submissions still get the first
+            # prompt response.
+            if diagram_image_paths:
+                second_result = backend.run_second_prompt(
+                    first_prompt_response=str(first_result.get("response_text") or ""),
+                    task_name=task_name,
+                    text_source_1=text_source_1,
+                    text_source_2=text_source_2,
+                    image_paths=diagram_image_paths,
+                    mode="text",
+                    prompt_text=None,
+                    text_model=model_overrides["text_model"],
+                    vision_model=model_overrides["vision_model"],
+                    voice_model=model_overrides["voice_model"],
+                    diagram_source=diagram_source,
+                )
+            else:
+                second_result = {}
 
         serialized_first = _attach_binary_payload(first_result)
         serialized_second = _attach_binary_payload(second_result)
@@ -860,4 +872,10 @@ def session_pending(code: str):
 
 
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
+    try:
+        backend = create_sequence_backend()
+        cache_summary = prime_machine_doc_caches(backend.get_client(), backend.text_model or TEXT_MODEL)
+        print(f"[startup] machine-doc cache summary: {cache_summary}")
+    except Exception as exc:
+        print(f"[startup] machine-doc cache init failed: {exc}")
     app.run(host=host, port=port, debug=debug, threaded=True)

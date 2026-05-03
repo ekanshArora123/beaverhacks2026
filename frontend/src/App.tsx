@@ -311,9 +311,10 @@ function App() {
     const phoneAudioBlob = isPhonePayload ? phoneInputs!.audioBlob : null
     const hasPhoneAudio = isPhonePayload && !!phoneAudioBlob
 
-    if (selectedUserImages.length === 0 && !hasManualText && !hasPhoneAudio) {
+    const hasLocalAudioPending = !isPhonePayload && !useTextInput && audioChunksRef.current.length > 0
+    if (selectedUserImages.length === 0 && !hasManualText && !hasPhoneAudio && !hasLocalAudioPending) {
       if (!isPhonePayload) {
-        alert('Please capture at least one image first')
+        alert('Please provide at least one input: capture an image, record audio, or enter text.')
       } else {
         console.warn('Phone payload arrived empty — skipping send')
       }
@@ -424,8 +425,6 @@ function App() {
       if (result?.image) {
         const imageUrl = `data:${result.image_mime || 'image/png'};base64,${result.image}`
         setReturnedImages([imageUrl])
-      } else {
-        setReturnedImages([])
       }
 
       const responseText = result?.first_prompt_response_text || 'No response'
@@ -556,12 +555,13 @@ function App() {
   }, [usePhoneInput])
 
   const hasManualText = manualTextInput.trim().length > 0
-  const isSendDisabled = isSending || (useTextInput && !hasManualText)
+  const hasAnyInput = capturedImages.length > 0 || (useTextInput ? hasManualText : hasAudioRecording) || hasAudioRecording
+  const isSendDisabled = isSending || !hasAnyInput
 
   return (
     <div className="app">
 
-      <div className="main-content">
+      <div className={`main-content ${usePhoneInput ? 'phone-mode-layout' : ''}`}>
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
           <h2>Analysis Results</h2>
@@ -614,6 +614,7 @@ function App() {
               code={sessionCode}
               errorMessage={pairingError}
               lastPayloadAt={lastPayloadAt}
+              compact={true}
             />
           ) : (
             <>
@@ -702,23 +703,25 @@ function App() {
         </div>
       </div>
 
-      {/* Thumbnail preview section (laptop capture mode only) */}
-      {!usePhoneInput && capturedImages.length > 0 && (
+      {/* Thumbnail preview & send controls (laptop capture mode only) */}
+      {!usePhoneInput && (
         <div className="thumbnails-section">
-          <div className="thumbnails-container">
-            {capturedImages.map((img) => (
-              <div key={img.id} className="thumbnail-box">
-                <img src={img.dataUrl} alt="Captured" className="thumbnail" />
-                <button
-                  className="remove-thumbnail"
-                  onClick={() => removeCapturedImage(img.id)}
-                  title="Remove"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
+          {capturedImages.length > 0 && (
+            <div className="thumbnails-container">
+              {capturedImages.map((img) => (
+                <div key={img.id} className="thumbnail-box">
+                  <img src={img.dataUrl} alt="Captured" className="thumbnail" />
+                  <button
+                    className="remove-thumbnail"
+                    onClick={() => removeCapturedImage(img.id)}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <button
             className="send-button"
             onClick={() => {
@@ -728,7 +731,13 @@ function App() {
           >
             {isSending
               ? 'Sending...'
-              : `Send ${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}${useTextInput ? (hasManualText ? ' + text' : '') : (hasAudioRecording ? ' + audio' : '')}`}
+              : (() => {
+                const parts: string[] = []
+                if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
+                if (useTextInput && hasManualText) parts.push('text')
+                else if (!useTextInput && hasAudioRecording) parts.push('audio')
+                return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
+              })()}
           </button>
         </div>
       )}

@@ -17,7 +17,10 @@ Usage::
 """
 
 import os
+import re
 from pathlib import Path
+
+from google.genai import types
 
 # ── Resolve the machine_docs root once at import time ────────────────────────
 # machine_docs/ lives at the project root (same level as taskStates/, etc.)
@@ -27,11 +30,23 @@ _MACHINE_DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "machine_doc
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff"}
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml"}
 _PDF_SUFFIXES = {".pdf"}
+# Toggle to prefer .md companions over .pdf files.
+PREFER_MARKDOWN_DOCS = True
+# Enable Gemini explicit caching for machine docs at startup.
+ENABLE_MACHINE_DOC_GEMINI_CACHE = True
+# Only cache large markdown files (in characters).
+MACHINE_DOC_CACHE_MIN_CHARS = 8_000
+# TTL for Gemini explicit cache entries.
+MACHINE_DOC_CACHE_TTL = "2h"
 
 # Large-PDF threshold (pages). Above this we return a summary instead of full text.
 _LARGE_PDF_PAGE_THRESHOLD = 50
 # Max characters to return for a large PDF preview
 _LARGE_PDF_PREVIEW_CHARS = 10_000
+
+# Runtime caches (warm at startup)
+_DOC_TEXT_CACHE: dict[str, str] = {}
+_MACHINE_DOC_GEMINI_CACHE_NAMES: dict[str, str] = {}
 
 
 def _safe_resolve(machine_name: str, filename: str | None = None) -> Path:
@@ -44,6 +59,18 @@ def _safe_resolve(machine_name: str, filename: str | None = None) -> Path:
             raise ValueError(f"Invalid filename: {filename!r}")
         return base / filename
     return base
+
+
+def _doc_cache_key(machine_name: str, filename: str) -> str:
+    return f"{machine_name.lower()}/{filename.lower()}"
+
+
+def _machine_name_variants(machine_name: str) -> set[str]:
+    variants = {machine_name.lower()}
+    normalized = machine_name.replace("_", " ").replace("-", " ").lower()
+    variants.add(normalized)
+    variants.add(re.sub(r"\s+", "", normalized))
+    return variants
 
 
 def _classify_file(suffix: str) -> str:
@@ -110,15 +137,27 @@ def list_documents(machine_name: str) -> list[dict]:
         print(f"[docTools]   folder not found: {folder}")
         return []
 
+    all_files = [
+        entry for entry in sorted(folder.iterdir())
+        if entry.is_file() and not entry.name.startswith(".")
+    ]
+    md_stems = {entry.stem.lower() for entry in all_files if entry.suffix.lower() == ".md"}
+
     documents = []
-    for entry in sorted(folder.iterdir()):
-        if entry.is_file() and not entry.name.startswith("."):
-            doc_info = {
-                "filename": entry.name,
-                "type": _classify_file(entry.suffix),
-                "size_kb": round(entry.stat().st_size / 1024, 1),
-            }
-            documents.append(doc_info)
+    for entry in all_files:
+        # Prefer markdown companions over PDFs for now.
+        if (
+            PREFER_MARKDOWN_DOCS
+            and entry.suffix.lower() == ".pdf"
+            and entry.stem.lower() in md_stems
+        ):
+            continue
+        doc_info = {
+            "filename": entry.name,
+            "type": _classify_file(entry.suffix),
+            "size_kb": round(entry.stat().st_size / 1024, 1),
+        }
+        documents.append(doc_info)
 
     print(f"[docTools]   found {len(documents)} file(s)")
     return documents
@@ -157,6 +196,17 @@ def read_document(machine_name: str, filename: str) -> str:
         print(f"[docTools]   {msg}")
         return f"Error: {msg}"
 
+    if PREFER_MARKDOWN_DOCS and file_path.suffix.lower() == ".pdf":
+        md_candidate = file_path.with_suffix(".md")
+        if md_candidate.exists() and md_candidate.is_file():
+            print(f"[docTools]   using markdown companion: {md_candidate.name}")
+            file_path = md_candidate
+
+    cache_key = _doc_cache_key(machine_name, file_path.name)
+    if cache_key in _DOC_TEXT_CACHE:
+        print(f"[docTools]   serving from local cache: {file_path.name}")
+        return _DOC_TEXT_CACHE[cache_key]
+
     suffix = file_path.suffix.lower()
     file_type = _classify_file(suffix)
 
@@ -166,14 +216,16 @@ def read_document(machine_name: str, filename: str) -> str:
 
     # ── Plain text ───────────────────────────────────────────────────────
     if file_type == "text":
-        return _read_text_file(file_path)
+        content = _read_text_file(file_path)
+        _DOC_TEXT_CACHE[cache_key] = content
+        return content
 
     # ── Image metadata ───────────────────────────────────────────────────
     if file_type == "image":
         return _read_image_metadata(file_path)
 
     # ── Unsupported ──────────────────────────────────────────────────────
-    return f"Unsupported file type: {filename} ({suffix}). Only PDFs, text files, and images are supported."
+    return f"Unsupported file type: {file_path.name} ({suffix}). Only PDFs, text files, and images are supported."
 
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
@@ -243,6 +295,98 @@ def _read_text_file(file_path: Path) -> str:
             return f"Error reading text file '{file_path.name}': {exc}"
     except Exception as exc:
         return f"Error reading text file '{file_path.name}': {exc}"
+
+
+def _read_text_file_uncached(file_path: Path) -> str:
+    """Read a plain text file for cache priming."""
+    try:
+        return file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return file_path.read_text(encoding="latin-1")
+
+
+def get_cached_content_name_for_text(*context_parts: str) -> str | None:
+    """Pick a Gemini cached-content handle based on machine name mention."""
+    if not _MACHINE_DOC_GEMINI_CACHE_NAMES:
+        return None
+
+    context = " ".join((part or "") for part in context_parts).lower()
+    squashed_context = re.sub(r"\s+", "", context)
+    for machine_name, cache_name in _MACHINE_DOC_GEMINI_CACHE_NAMES.items():
+        for variant in _machine_name_variants(machine_name):
+            if variant in context or variant.replace(" ", "") in squashed_context:
+                return cache_name
+    return None
+
+
+def prime_machine_doc_caches(client, model: str) -> dict[str, int]:
+    """Warm local markdown cache and create Gemini explicit caches per machine."""
+    summary = {
+        "local_docs_cached": 0,
+        "gemini_caches_created": 0,
+        "gemini_caches_failed": 0,
+    }
+    _DOC_TEXT_CACHE.clear()
+    _MACHINE_DOC_GEMINI_CACHE_NAMES.clear()
+
+    if not _MACHINE_DOCS_DIR.exists():
+        return summary
+
+    machine_chunks: dict[str, list[str]] = {}
+    for machine_dir in sorted(entry for entry in _MACHINE_DOCS_DIR.iterdir() if entry.is_dir()):
+        chunks: list[str] = []
+        for entry in sorted(machine_dir.iterdir()):
+            if not entry.is_file():
+                continue
+            suffix = entry.suffix.lower()
+            if suffix == ".md":
+                target_path = entry
+            elif PREFER_MARKDOWN_DOCS and suffix == ".pdf" and entry.with_suffix(".md").exists():
+                target_path = entry.with_suffix(".md")
+            else:
+                continue
+
+            try:
+                content = _read_text_file_uncached(target_path)
+            except Exception as exc:
+                print(f"[docTools] cache skip {target_path.name}: {exc}")
+                continue
+
+            _DOC_TEXT_CACHE[_doc_cache_key(machine_dir.name, target_path.name)] = content
+            summary["local_docs_cached"] += 1
+
+            if len(content) >= MACHINE_DOC_CACHE_MIN_CHARS:
+                chunks.append(f"### {target_path.name}\n\n{content}")
+
+        if chunks:
+            machine_chunks[machine_dir.name] = chunks
+
+    if not ENABLE_MACHINE_DOC_GEMINI_CACHE:
+        return summary
+
+    for machine_name, chunks in machine_chunks.items():
+        try:
+            cached = client.caches.create(
+                model=model,
+                config=types.CreateCachedContentConfig(
+                    display_name=f"machine-docs-{machine_name}",
+                    ttl=MACHINE_DOC_CACHE_TTL,
+                    system_instruction=(
+                        "Cached machine documentation context. Use this as source material "
+                        "and use tools for exact file retrieval when needed."
+                    ),
+                    contents=["\n\n".join(chunks)],
+                ),
+            )
+            cache_name = getattr(cached, "name", None)
+            if cache_name:
+                _MACHINE_DOC_GEMINI_CACHE_NAMES[machine_name] = cache_name
+                summary["gemini_caches_created"] += 1
+        except Exception as exc:
+            summary["gemini_caches_failed"] += 1
+            print(f"[docTools] Gemini cache create failed for {machine_name}: {exc}")
+
+    return summary
 
 
 def _read_image_metadata(file_path: Path) -> str:
