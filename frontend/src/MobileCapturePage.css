@@ -265,12 +265,13 @@
   background: rgba(0, 0, 0, 0.7);
   color: #fff;
   border: none;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  font-size: 14px;
+  border-radius: 999px;
+  min-height: 22px;
+  font-size: 0.62rem;
   cursor: pointer;
   line-height: 1;
+  padding: 0.18rem 0.35rem;
+  font-weight: 700;
 }
 
 .mobile-controls {
@@ -320,17 +321,13 @@
   box-shadow: none;
 }
 
-.mobile-control-icon {
-  font-size: 1.28rem;
-  line-height: 1;
-}
-
 .mobile-control-label {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   line-height: 1;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  text-align: center;
 }
 
 .mobile-shutter {
@@ -384,10 +381,13 @@
 
 .mobile-audio-ready button {
   background: none;
-  border: none;
+  border: 1px solid rgba(184, 230, 197, 0.45);
   color: #b8e6c5;
-  font-size: 1rem;
+  font-size: 0.76rem;
   cursor: pointer;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  font-weight: 700;
 }
 
 .mobile-status {

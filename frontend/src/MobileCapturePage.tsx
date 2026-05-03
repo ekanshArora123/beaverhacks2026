@@ -203,7 +203,7 @@ function MobileCapturePage() {
                 className="mobile-thumb-remove"
                 onClick={() => capture.removeCapturedImage(image.id)}
                 aria-label="Remove photo"
-              >×</button>
+              >Remove</button>
             </div>
           ))
         )}
@@ -216,7 +216,6 @@ function MobileCapturePage() {
           disabled={controlsDisabled}
           type="button"
         >
-          <span className="mobile-control-icon" aria-hidden="true">📷</span>
           <span className="mobile-control-label">Photo</span>
         </button>
         <button
@@ -226,7 +225,6 @@ function MobileCapturePage() {
           title={!capture.microphoneAvailable && capture.isMediaReady ? 'Microphone not granted on this connection' : undefined}
           type="button"
         >
-          <span className="mobile-control-icon" aria-hidden="true">{capture.isRecording ? '⏹' : '🎤'}</span>
           <span className="mobile-control-label">{capture.isRecording ? 'Stop' : 'Audio'}</span>
         </button>
         <button
@@ -234,7 +232,6 @@ function MobileCapturePage() {
           onClick={() => setShowText((previous) => !previous)}
           type="button"
         >
-          <span className="mobile-control-icon" aria-hidden="true">⌨</span>
           <span className="mobile-control-label">Text</span>
         </button>
       </div>
@@ -252,7 +249,7 @@ function MobileCapturePage() {
       {capture.hasAudioRecording && !capture.isRecording && (
         <div className="mobile-audio-ready">
           <span>🎙 Audio captured</span>
-          <button type="button" onClick={capture.discardAudio} aria-label="Discard audio">✕</button>
+          <button type="button" onClick={capture.discardAudio} aria-label="Discard audio">Discard</button>
         </div>
       )}
 

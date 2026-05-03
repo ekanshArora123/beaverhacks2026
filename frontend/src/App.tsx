@@ -596,7 +596,7 @@ function App() {
               onClick={togglePhoneInputMode}
               title={usePhoneInput ? 'Stop using phone as input' : 'Use Android phone as input device'}
             >
-              {usePhoneInput ? '📱 Phone On' : '📱 Use Phone'}
+              {usePhoneInput ? 'Phone On' : 'Use Phone'}
             </button>
           </div>
 
@@ -633,7 +633,6 @@ function App() {
                     title="Capture Image"
                     type="button"
                   >
-                    <span className="control-icon" aria-hidden="true">📷</span>
                     <span className="control-label">Capture</span>
                   </button>
                   <button
@@ -643,7 +642,6 @@ function App() {
                     disabled={useTextInput}
                     type="button"
                   >
-                    <span className="control-icon" aria-hidden="true">{isRecording ? '⏹' : '🎤'}</span>
                     <span className="control-label">{isRecording ? 'Stop' : 'Record'}</span>
                   </button>
                   <button
@@ -652,7 +650,6 @@ function App() {
                     title={useTextInput ? 'Use audio instead' : 'Use text instead of audio'}
                     type="button"
                   >
-                    <span className="control-icon" aria-hidden="true">⌨</span>
                     <span className="control-label">Use Text</span>
                   </button>
                 </div>
@@ -679,7 +676,7 @@ function App() {
                   ) : (
                     <>
                       <span className="audio-status-dot ready-dot" /> Audio recorded — will be sent with images
-                      <button className="discard-audio-btn" onClick={discardAudio} title="Discard audio">✕</button>
+                      <button className="discard-audio-btn" onClick={discardAudio} title="Discard audio">Discard</button>
                     </>
                   )}
                 </div>
@@ -702,7 +699,7 @@ function App() {
                     onClick={() => removeCapturedImage(img.id)}
                     title="Remove"
                   >
-                    ×
+                    Remove
                   </button>
                 </div>
               ))}
