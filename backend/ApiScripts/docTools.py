@@ -37,7 +37,7 @@ ENABLE_MACHINE_DOC_GEMINI_CACHE = True
 # Only cache large markdown files (in characters).
 MACHINE_DOC_CACHE_MIN_CHARS = 8_000
 # TTL for Gemini explicit cache entries.
-MACHINE_DOC_CACHE_TTL = "2h"
+MACHINE_DOC_CACHE_TTL = "7200s"
 
 # Large-PDF threshold (pages). Above this we return a summary instead of full text.
 _LARGE_PDF_PAGE_THRESHOLD = 50

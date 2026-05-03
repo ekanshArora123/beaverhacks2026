@@ -53,13 +53,13 @@ SCHEMATIC_IMAGE_DIR = r"C:\path\to\schematic\images"
 USER_IMAGE_DIR = r"C:\path\to\user\images"
 
 # ── Gemini client setup ──────────────────────────────────────────────────────
-try:
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from keys import GEMINI_KEY
-except ImportError:
-    print("KEY NOT FOUND")
-    GEMINI_KEY = None
+from dotenv import load_dotenv
+
+_env_path = Path(__file__).resolve().parent.parent.parent / "keys.env"
+load_dotenv(_env_path)
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+if not GEMINI_KEY:
+    print("KEY NOT FOUND – check keys.env in project root")
 
 
 def _get_client() -> genai.Client:
