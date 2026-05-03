@@ -74,7 +74,7 @@ if (-not $env:GEMINI_API_KEY) {
 }
 
 $backendCommand = "& { Set-Location -LiteralPath '$repoRoot'; & '$pythonExecutable' '$backendScript' }"
-$frontendCommand = "& { Set-Location -LiteralPath '$frontendDir'; npm run dev }"
+$frontendCommand = "& { Set-Location -LiteralPath '$frontendDir'; npm run dev -- --open }"
 
 if ($SingleTerminal -and $SeparateWindows) {
     throw "Use either -SingleTerminal or -SeparateWindows, not both."
@@ -140,7 +140,7 @@ Write-Host "Frontend is starting in the current terminal. Press Ctrl+C to stop b
 
 try {
     Set-Location -LiteralPath $frontendDir
-    npm run dev
+    npm run dev -- --open
 }
 finally {
     if ($null -ne $backendJob) {
