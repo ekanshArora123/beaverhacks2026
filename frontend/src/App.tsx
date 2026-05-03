@@ -97,7 +97,7 @@ function App() {
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
   const loopTranscriptsRef = useRef<string[]>([])
-  const sendToBackendRef = useRef<(override?: PhonePayloadInputs) => Promise<void>>(async () => {})
+  const sendToBackendRef = useRef<(override?: PhonePayloadInputs) => Promise<void>>(async () => { })
 
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
@@ -422,7 +422,7 @@ function App() {
         setReturnedImages([])
       }
 
-      const responseText = result?.text || 'No response'
+      const responseText = result?.first_prompt_response_text || 'No response'
       setAnalysisResult(responseText)
 
       const transcribedUserInput = (result?.user_input_text || '').trim()
