@@ -27,14 +27,14 @@ SUPPORTED_IMAGE_SUFFIXES = {
 ResponseMode = Literal["text", "voice"]
 DEFAULT_PROMPTS = {
 	1: (
-		"You are an expert field technician assistant. Use the provided context, task status, and images "
-		"to produce one clear text instruction for what the technician should do next. Focus on safe, "
-		"actionable guidance."
+		"You are an field technician assistant. Use the provided context, task , and images "
+		"to produce one clear text instruction for what the technician should do next. "
+		"Focus on actionable guidance for their question and task"
 	),
 	2: (
-		"Create a technician-facing annotated image that shows the exact next action. Use strong directional "
-		"arrows, short labels, and diagram-style overlays so the operator can immediately see what to inspect, "
-		"press, loosen, tighten, or replace."
+		"Create a technician-facing annotated image that shows the next action if rlevent."
+		"Use directional, arrows, short labels, and diagram-style overlays so the operator
+		"can immediately see what to do (inspect, press, loosen, tighten, replace, etc)"
 	),
 }
 GENERATED_DIAGRAMS_DIR = Path(__file__).resolve().parent.parent / "generated_diagrams"
