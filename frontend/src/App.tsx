@@ -32,6 +32,18 @@ const RECORDER_FORMAT_CANDIDATES: RecorderFormat[] = [
   { mimeType: 'audio/webm', extension: 'webm' },
 ]
 const LOOP_TRANSCRIPT_HISTORY_LIMIT = 8
+const USER_IMAGE_FALLBACK_LIMIT = 3
+const USER_IMAGE_CONTEXT_SOFT_COUNT_LIMIT = 8
+const USER_IMAGE_CONTEXT_SOFT_BYTES_LIMIT = 15 * 1024 * 1024
+const TEXT_CONTEXT_SOFT_CHAR_LIMIT = 4000
+const DEFAULT_SCHEMATIC_IMAGE_PATH = 'taskContext/task1/3d_printer.jpg'
+const configuredSchematicPaths = ((import.meta.env.VITE_SCHEMATIC_IMAGE_PATHS as string | undefined) || '')
+  .split(',')
+  .map((path) => path.trim())
+  .filter(Boolean)
+const SCHEMATIC_IMAGE_PATHS = configuredSchematicPaths.length > 0
+  ? configuredSchematicPaths
+  : [DEFAULT_SCHEMATIC_IMAGE_PATH]
 
 function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -58,6 +70,11 @@ async function parseJsonResponse<T>(response: Response): Promise<T | null> {
   } catch {
     return null
   }
+}
+
+function estimateDataUrlBytes(dataUrl: string): number {
+  const encodedPayload = dataUrl.split(',', 2)[1] || ''
+  return Math.floor(encodedPayload.length * 0.75)
 }
 
 function App() {
@@ -195,10 +212,38 @@ function App() {
     setCapturedImages(prev => prev.filter(img => img.id !== id))
   }
 
-  const sendToBackend = async () => {
-    const urlToUse = capturedImages.length > 0 ? capturedImages[capturedImages.length - 1].dataUrl : null
+  const buildPendingImageDataUrls = () => {
+    return capturedImages.map((image) => image.dataUrl)
+  }
 
-    if (!urlToUse) {
+  const selectUserImagesForRequest = (allImageDataUrls: string[], rollingLoopContext: string) => {
+    if (allImageDataUrls.length <= USER_IMAGE_FALLBACK_LIMIT) {
+      return allImageDataUrls
+    }
+
+    const totalImageBytes = allImageDataUrls.reduce((totalBytes, imageDataUrl) => {
+      return totalBytes + estimateDataUrlBytes(imageDataUrl)
+    }, 0)
+
+    const isNearContextLimit =
+      allImageDataUrls.length > USER_IMAGE_CONTEXT_SOFT_COUNT_LIMIT ||
+      totalImageBytes > USER_IMAGE_CONTEXT_SOFT_BYTES_LIMIT ||
+      rollingLoopContext.length > TEXT_CONTEXT_SOFT_CHAR_LIMIT
+
+    if (isNearContextLimit) {
+      return allImageDataUrls.slice(-USER_IMAGE_FALLBACK_LIMIT)
+    }
+
+    return allImageDataUrls
+  }
+
+  const sendToBackend = async () => {
+    const rollingLoopContext = buildRollingLoopContext()
+    const pendingImageDataUrls = buildPendingImageDataUrls()
+    const selectedUserImages = selectUserImagesForRequest(pendingImageDataUrls, rollingLoopContext)
+
+
+    if (selectedUserImages.length === 0) {
       alert('Please capture at least one image first')
       return
     }
@@ -214,17 +259,26 @@ function App() {
     setIsSending(true)
 
     try {
-      const response = await fetch(urlToUse)
-      const imageBlob = await response.blob()
+      const formData = new FormData()
 
-      console.log('Sending image:', {
-        size: imageBlob.size,
-        type: imageBlob.type,
-        imagesCount: capturedImages.length
+      SCHEMATIC_IMAGE_PATHS.forEach((schematicPath) => {
+        formData.append('image_paths', schematicPath)
       })
 
-      const formData = new FormData()
-      formData.append('file', imageBlob, 'capture.png')
+      for (const [index, imageDataUrl] of selectedUserImages.entries()) {
+        const response = await fetch(imageDataUrl)
+        const imageBlob = await response.blob()
+        formData.append('files', imageBlob, `capture_${index + 1}.png`)
+      }
+
+      console.log('Sending images:', {
+        selectedUserImageCount: selectedUserImages.length,
+        availableUserImageCount: pendingImageDataUrls.length,
+        fallbackLimit: USER_IMAGE_FALLBACK_LIMIT,
+        schematicCount: SCHEMATIC_IMAGE_PATHS.length,
+
+      })
+
       const hasAudioClip = audioChunksRef.current.length > 0 && recorderFormatRef.current
 
       if (!hasAudioClip) {
