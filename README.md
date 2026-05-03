@@ -1,95 +1,100 @@
 # beaverhacks2026
 
-A dynamic graphics display application with image upload API endpoints.
+A dynamic graphics display application with AI image analysis capabilities.
 
 ## Project Structure
 
-- **AIBackend/** - Python AI/backend service
+- **AIBackend/** - Python AI backend with Gemini API integration
 - **ts-frontend/** - Original TypeScript frontend
-- **frontend/** - React/TypeScript UI with webcam and image display features
+- **frontend/** - React/TypeScript UI with webcam and audio capture
+- **programAPI.py** - Flask API server for AI processing
 
-## Quick Start - Frontend
+## Quick Start
 
 ### Prerequisites
 
 - Node.js installed
-- A webcam (for live video feed)
-- Python with `requests` library (optional, for sending images)
+- Python 3.x with pip
+- A webcam and microphone
+- Gemini API key
 
-### Installation
+### 1. Install Frontend Dependencies
 
 ```bash
 cd frontend
 npm install
 ```
 
-### Running the Application
+### 2. Install Python Dependencies
 
-You need to run **two servers** in separate terminals:
-
-**Terminal 1 - Start Backend API Server:**
 ```bash
-cd frontend
-npm run server
+pip install -r requirements.txt
 ```
-- Runs on http://localhost:3001
-- Provides API endpoints for image uploads
 
-**Terminal 2 - Start Frontend Dev Server:**
+### 3. Configure API Key
+
+Set your Gemini API key:
+```bash
+# Windows PowerShell
+$env:GEMINI_API_KEY="your-api-key-here"
+
+# Linux/Mac
+export GEMINI_API_KEY="your-api-key-here"
+```
+
+Or create `AIBackend/keys.py`:
+```python
+GEMINI_KEY = "your-api-key-here"
+```
+
+### 4. Start the Servers
+
+**Terminal 1 - Start Flask Backend:**
+```bash
+python programAPI.py
+```
+- Runs on http://localhost:5000
+- Provides `/analyze` and `/generate` endpoints
+
+**Terminal 2 - Start Frontend:**
 ```bash
 cd frontend
 npm run dev
 ```
 - Runs on http://localhost:5173
-- Open in your browser and allow webcam permissions
+- Open in your browser and allow webcam/microphone permissions
 
-**OR use the quick launcher (Windows):**
+## Features
+
+- **Live Webcam Display** - Real-time video feed with audio capture
+- **Dynamic Image Boxes** - Two image display slots
+- **AI Analysis** - Send images to Gemini for analysis
+- **Image Generation** - Generate images from text prompts
+
+## API Endpoints (Flask Backend)
+
+### Analyze Media
 ```bash
-cd frontend
-start-servers.bat
+POST http://localhost:5000/analyze
+Content-Type: multipart/form-data
+Fields: file (optional), prompt (required)
 ```
 
-### Features
-
-- **Live Webcam Display** - Real-time video feed from your camera
-- **Dynamic Image Boxes** - Two image display slots (example1.png, example2.png)
-- **API Endpoints** - Receive images from external sources (Python Flask, etc.)
-- **Auto-Refresh** - Frontend automatically updates when new images are uploaded
-
-### API Usage
-
-**Send an image from Python:**
+### Generate Content
 ```bash
-cd frontend
-pip install requests
-python send_image_example.py path/to/image.png example1
+POST http://localhost:5000/generate
+Content-Type: application/json
+Body: { "prompt": "your prompt here" }
 ```
 
-**Update images via HTTP:**
-```python
-import requests
-
-# Upload to general uploads
-with open('image.png', 'rb') as f:
-    requests.post('http://localhost:3001/api/upload-image', files={'image': f})
-
-# Update display slot
-with open('image.png', 'rb') as f:
-    requests.post('http://localhost:3001/api/update-image/example1', files={'image': f})
+### Health Check
+```bash
+GET http://localhost:5000/health
 ```
 
-### Available API Endpoints
+## Documentation
 
-- `POST /api/upload-image` - Upload single image
-- `POST /api/update-image/example1` - Update Image 1
-- `POST /api/update-image/example2` - Update Image 2
-- `GET /api/images` - List all uploaded images
-- `GET /api/health` - Health check
-
-### Documentation
-
-- [frontend/PROJECT_README.md](frontend/PROJECT_README.md) - Detailed project documentation
-- [frontend/API_DOCUMENTATION.md](frontend/API_DOCUMENTATION.md) - Complete API reference
-- [frontend/TESTING.md](frontend/TESTING.md) - Testing guide with examples
+- [frontend/PROJECT_README.md](frontend/PROJECT_README.md) - Frontend documentation
+- [AIBackend/](AIBackend/) - AI backend implementation
 
 # 

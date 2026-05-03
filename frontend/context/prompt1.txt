@@ -10,3 +10,14 @@ Context:
 
     Gain familiarity with the backend ./AIBackend
 
+    Do not make any changes to AIBackend. 
+
+    Add a button on the video feed to 'capture image' 
+
+    Remove the instructions below this for sending HTTPS requests. 
+
+    The user should be able to capture multiple images.
+
+    Below the media (centered) a small preview (thumbnails) of the image(s)
+    should be show with a 'send' button next to them (right hand side). 
+
