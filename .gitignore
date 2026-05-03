@@ -1,16 +1,21 @@
 /.venv
 */node_modules
 settings.json
-/__pycache__/*
-backend/ApiScripts/GeminiEndpoint/__pycache__/*
-backend/ApiScripts/__pycache__/*
-backend/__pycache__/*
+__pycache__/
+*.py[cod]
+*$py.class
 */.vite/*
 .gitignore
 *.env
-*.pyc
 *keys.env
-*/__pycache__/**
 keys.env
 keys.py
-backend/tests/__pycache__/test_prompt_api.cpython-313.pyc
+
+# Build output
+frontend/dist/
+
+# Generated artifacts
+backend/generated_diagrams/
+
+# Future-proofing for disk-backed phone sessions
+backend/sessionUploads/

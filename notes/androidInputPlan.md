@@ -137,3 +137,74 @@ Open questions to resolve before building:
 - Do we want the laptop's webcam to remain a fallback input, or is "phone mode" a hard switch that disables the laptop's mic/camera capture?
 - Per-session persistence (does the queue need to survive a page reload) or pure in-memory?
 - HTTPS strategy for the phone leg — ngrok is easiest; a self-signed cert is the no-internet option.
+
+---
+
+## Files to add and change for Option 2
+
+### Backend
+
+**Change** [backend/programAPI.py](backend/programAPI.py)
+- Add three Flask routes:
+  - `POST /session/new` → mints a 4–6 char code, returns `{ code }`.
+  - `POST /session/<code>/input` → multipart endpoint accepting the same fields `/analyze` already accepts (`files`, `audio`, `text_source_2`, `image_paths`, `diagram_source`, etc.). Stashes the payload (saving uploaded files into a per-session temp dir, since Flask's `FileStorage` streams won't survive the request).
+  - `GET /session/<code>/pending` → either long-poll (block up to ~25s waiting for input, then return `204`) or Server-Sent Events streaming `data: {...}\n\n` events. SSE is the smaller diff; Flask supports it via a `Response(generator, mimetype="text/event-stream")`.
+- Reuse the existing helpers (`_iter_uploaded_files`, `_save_uploaded_files`, `_split_image_sources`) — the goal is for the session input shape to match what `/analyze` already understands so we don't fork the parsing path.
+
+**Add** `backend/sessionStore.py`
+- Tiny module holding `{ code: Queue }` plus `create_session()`, `push_input(code, payload)`, `pop_input(code, timeout)`. Keeping it out of `programAPI.py` keeps that file readable.
+- In-memory only (single Flask process). If we ever go multi-worker we need Redis, but for the hackathon a `dict` + `threading.Condition` is enough.
+
+**No change** to [backend/AIBackend.py](backend/AIBackend.py) or anything in `backend/ApiScripts/` — the prompt pipeline does not need to know the input came from a phone.
+
+**No new Python deps** — Flask + flask-cors already cover this. SSE is plain text streaming.
+
+### Frontend
+
+**Change** [frontend/src/main.tsx](frontend/src/main.tsx)
+- Add a path switch so `/mobile` mounts a `MobileCapturePage` and `/` keeps mounting `App`. Either install `react-router-dom` or do a one-liner `window.location.pathname === '/mobile' ? <Mobile/> : <App/>` — the manual switch is fine for two routes.
+
+**Change** [frontend/src/App.tsx](frontend/src/App.tsx)
+- Extract the camera/recorder lifecycle (the `useEffect` that calls `getUserMedia`, `toggleRecording`, `captureImage`, `discardAudio`, the `recorderFormatRef` setup) into a new `useCaptureSession` hook so `MobileCapturePage` can reuse it.
+- On mount, call `POST /session/new`, store the code, render the code + QR somewhere visible.
+- Open an SSE connection to `GET /session/<code>/pending`. When a payload arrives, route it into `sendToBackend` *in place of* the current webcam capture state — i.e., `selectedUserImages` come from the phone payload's images, `audio` from the phone payload's audio, `text_source_2` from the phone payload's text. The existing `/analyze` POST and the rolling-loop bookkeeping below it stay untouched.
+- Add a "phone mode" toggle that hides the local capture/record/text-input controls when active, so we don't have two competing input sources.
+
+**Add** `frontend/src/hooks/useCaptureSession.ts`
+- The extracted capture logic from `App.tsx`. Returns `{ videoRef, isRecording, hasAudioRecording, capturedImages, captureImage, removeCapturedImage, toggleRecording, discardAudio, getAudioBlob }`.
+- One detail to preserve: the phone needs `getUserMedia({ video: { facingMode: { ideal: 'environment' } } })` to default to the rear camera. Make `facingMode` a hook option.
+
+**Add** `frontend/src/MobileCapturePage.tsx`
+- Reads `?code=ABC123` from the URL (or shows a "paste code" input if missing).
+- Uses `useCaptureSession` for camera + mic.
+- Big portrait-friendly buttons: shutter, mic toggle, send.
+- Send handler builds the same multipart `FormData` `App.tsx` builds today, but POSTs to `/session/<code>/input` instead of `/analyze`.
+
+**Add** `frontend/src/api/session.ts`
+- Thin client wrapping `fetch` for `/session/new`, `/session/<code>/input`, plus a helper that opens an `EventSource` to `/session/<code>/pending` and yields parsed payloads. Keeps the network layer out of components.
+
+**Add** `frontend/src/SessionPairingPanel.tsx`
+- Component for the laptop UI: shows the code, a QR (use `qrcode.react`), and a "phone connected ✓" indicator (flip when the first SSE event arrives or when a phone calls a `/session/<code>/hello` ping).
+
+**Change** [frontend/src/App.css](frontend/src/App.css) (and add `frontend/src/MobileCapturePage.css`)
+- Portrait/touch-target styles for the mobile page; QR styling on the laptop side.
+
+**Change** [frontend/package.json](frontend/package.json)
+- Add `qrcode.react` for the QR rendering.
+- Optionally add `react-router-dom` if we go that route instead of the manual path switch.
+
+**No change** needed to [frontend/vite.config.ts](frontend/vite.config.ts) for in-network demos — `npm run dev -- --host` exposes the dev server on the LAN. For HTTPS (required by `getUserMedia` on Android Chrome from a non-`localhost` origin), either run through ngrok or add `@vitejs/plugin-basic-ssl` and accept the cert warning on the phone.
+
+### Tooling / docs
+
+**Change** [start-dev.ps1](start-dev.ps1)
+- Probably nothing required (Flask already binds `0.0.0.0:5000`). Optional: pass `--host` to the Vite command so the laptop prints the LAN URL on startup.
+
+**Change** [README.md](README.md)
+- Document the new `/mobile` route, how to pair via QR, and the ngrok/HTTPS step for the phone.
+
+### Summary
+
+- **New files (5):** `backend/sessionStore.py`, `frontend/src/hooks/useCaptureSession.ts`, `frontend/src/MobileCapturePage.tsx`, `frontend/src/MobileCapturePage.css`, `frontend/src/api/session.ts`, `frontend/src/SessionPairingPanel.tsx` *(6 if we count the pairing panel separately, which we should)*.
+- **Edited files (5):** `backend/programAPI.py`, `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/App.css`, `frontend/package.json`.
+- **Unchanged:** all of `backend/ApiScripts/`, `backend/AIBackend.py`, `requirements.txt`, the prompt scripts. The phone leg is purely an input-source adapter; the AI pipeline doesn't notice.

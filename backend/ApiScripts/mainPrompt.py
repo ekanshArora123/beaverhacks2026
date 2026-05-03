@@ -58,11 +58,13 @@ try:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
     from keys import GEMINI_KEY
 except ImportError:
+    print("KEY NOT FOUND")
     GEMINI_KEY = None
 
 
 def _get_client() -> genai.Client:
     api_key = os.environ.get("GEMINI_API_KEY") or GEMINI_KEY
+    print("GEMINI_KEY")
     if not api_key:
         raise RuntimeError("Set GEMINI_API_KEY env var or define GEMINI_KEY in keys.py")
     return genai.Client(api_key=api_key)

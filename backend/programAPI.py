@@ -8,7 +8,9 @@ and exposes explicit prompt-stage routes (`/prompts/*`) that execute the plan:
 
 import base64
 import os
+import socket
 import tempfile
+import time
 import traceback
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,11 @@ try:
     from .ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 except ImportError:
     from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+
+try:
+    from . import sessionStore
+except ImportError:
+    import sessionStore
 
 
 app = Flask(__name__)
@@ -589,5 +596,116 @@ def run_all_prompts():
         return _json_error_response(exc)
 
 
+def _detect_lan_ipv4_addresses() -> list[str]:
+    """Best-effort enumeration of the host's non-loopback IPv4 addresses.
+
+    Used by the laptop frontend to rewrite the QR pairing URL when the user
+    opened the app on `localhost` (a URL the phone cannot reach).
+    """
+    addresses: list[str] = []
+
+    try:
+        outbound_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            outbound_socket.connect(("8.8.8.8", 80))
+            primary_address = outbound_socket.getsockname()[0]
+        finally:
+            outbound_socket.close()
+        if primary_address and not primary_address.startswith("127."):
+            addresses.append(primary_address)
+    except OSError:
+        pass
+
+    try:
+        host_name = socket.gethostname()
+        for info in socket.getaddrinfo(host_name, None, socket.AF_INET):
+            candidate = info[4][0]
+            if candidate.startswith("127."):
+                continue
+            if candidate not in addresses:
+                addresses.append(candidate)
+    except (OSError, socket.gaierror):
+        pass
+
+    return addresses
+
+
+@app.route("/host-info", methods=["GET"])
+def host_info():
+    return jsonify({"lan_addresses": _detect_lan_ipv4_addresses()})
+
+
+@app.route("/session/new", methods=["POST"])
+def session_new():
+    code = sessionStore.create_session()
+    return jsonify({"code": code})
+
+
+@app.route("/session/<code>/input", methods=["POST"])
+def session_input(code: str):
+    if not sessionStore.session_exists(code):
+        return jsonify({"error": "Unknown or expired session code"}), 404
+
+    try:
+        image_data_urls: list[str] = []
+        for uploaded_file in _iter_uploaded_files(PROMPT_UPLOAD_FIELD_NAMES):
+            suffix = Path(uploaded_file.filename).suffix.lower()
+            if suffix not in SUPPORTED_IMAGE_SUFFIXES:
+                allowed_text = ", ".join(sorted(item.lstrip(".") for item in SUPPORTED_IMAGE_SUFFIXES))
+                return jsonify({"error": f"Unsupported image type for {uploaded_file.filename}. Use {allowed_text}."}), 400
+            mime_type = uploaded_file.content_type or uploaded_file.mimetype or f"image/{suffix.lstrip('.') or 'png'}"
+            image_data_urls.append(sessionStore.encode_data_url(uploaded_file.read(), mime_type))
+
+        audio_data_url: str | None = None
+        audio_mime: str | None = None
+        audio_extension: str | None = None
+        audio_upload = request.files.get("audio")
+        if audio_upload and getattr(audio_upload, "filename", ""):
+            audio_mime = audio_upload.content_type or audio_upload.mimetype or "audio/webm"
+            audio_extension = Path(audio_upload.filename).suffix.lstrip(".") or "webm"
+            audio_data_url = sessionStore.encode_data_url(audio_upload.read(), audio_mime)
+
+        text_value = _optional_str(request.form.get("text_source_2") or request.form.get("text"))
+        diagram_source = _optional_str(request.form.get("diagram_source"))
+
+        if not image_data_urls and not audio_data_url and not text_value:
+            return jsonify({"error": "Phone payload must include at least one image, audio, or text"}), 400
+
+        payload: dict[str, object] = {
+            "image_data_urls": image_data_urls,
+            "audio_data_url": audio_data_url,
+            "audio_mime": audio_mime,
+            "audio_extension": audio_extension,
+            "text_source_2": text_value,
+            "diagram_source": diagram_source,
+            "received_at": time.time(),
+        }
+
+        delivered = sessionStore.push_payload(code, payload)
+        if not delivered:
+            return jsonify({"error": "Unknown or expired session code"}), 404
+
+        return jsonify({"status": "ok", "image_count": len(image_data_urls), "has_audio": bool(audio_data_url), "has_text": bool(text_value)})
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
+@app.route("/session/<code>/pending", methods=["GET"])
+def session_pending(code: str):
+    if not sessionStore.session_exists(code):
+        return jsonify({"error": "Unknown or expired session code"}), 404
+
+    try:
+        timeout_seconds = float(request.args.get("timeout", "25"))
+    except ValueError:
+        timeout_seconds = 25.0
+    timeout_seconds = max(1.0, min(timeout_seconds, 55.0))
+
+    payload = sessionStore.pop_payload(code, timeout_seconds)
+    if payload is None:
+        return ("", 204)
+    return jsonify(payload)
+
+
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
-    app.run(host=host, port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug, threaded=True)
