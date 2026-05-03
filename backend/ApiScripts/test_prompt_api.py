@@ -1,4 +1,7 @@
-"""Smoke-test one callable function for each backend prompt stage."""
+"""Smoke-test one callable function for each backend prompt stage.
+
+Default mode is real Gemini calls. Use --fake to run local stub mode.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,7 @@ import argparse
 import importlib
 import inspect
 import json
+import os
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,9 +24,16 @@ from ApiScripts.diagramPrompt import MainPromptMixin
 from ApiScripts.mainPrompt import SecondPromptMixin
 from ApiScripts.textToVoice import TTSMixin
 from ApiScripts.updatePrompt import StateUpdateMixin
+from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 
-PNG_BYTES = b"\x89PNG\r\n\x1a\n"
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\x0cIDATx\x9cc`\x00\x00\x00\x02\x00\x01\xe5'\xd4\xa2"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 class SkipTest(Exception):
@@ -62,15 +73,75 @@ class FakeClient:
         self.models = FakeModels()
 
 
+def _load_repo_key() -> str | None:
+    keys_path = BACKEND_DIR.parent / "keys.py"
+    if not keys_path.exists():
+        return None
+
+    spec = importlib.util.spec_from_file_location("workspace_keys", keys_path)
+    if spec is None or spec.loader is None:
+        return None
+
+    keys_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(keys_module)
+    return getattr(keys_module, "GEMINI_KEY", None)
+
+
+def _load_env_file_key() -> str | None:
+    env_path = BACKEND_DIR.parent / "keys.env"
+    if not env_path.exists():
+        return None
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        candidate = line
+        if line.startswith("GEMINI_API_KEY="):
+            candidate = line.split("=", 1)[1].strip()
+
+        if candidate.startswith('"') and candidate.endswith('"') and len(candidate) >= 2:
+            candidate = candidate[1:-1]
+        elif candidate.startswith("'") and candidate.endswith("'") and len(candidate) >= 2:
+            candidate = candidate[1:-1]
+
+        if candidate:
+            return candidate
+
+    return None
+
+
+def _load_api_key() -> str:
+    api_key = _load_env_file_key() or os.environ.get("GEMINI_API_KEY") or _load_repo_key()
+    if not api_key:
+        raise RuntimeError(
+            "Set GEMINI_API_KEY, or add GEMINI_API_KEY to keys.env, or define GEMINI_KEY in keys.py before running --real tests."
+        )
+    return api_key
+
+
+def _assert_non_empty_response(result: dict[str, str | int | list[str] | None], *, real_mode: bool) -> str:
+    response_text = str(result.get("response_text") or "").strip()
+    if not response_text:
+        raise AssertionError("Gemini returned an empty response_text.")
+
+    if real_mode and response_text.startswith("fake response from"):
+        raise AssertionError("Expected a real Gemini response, but fake response text was returned.")
+
+    return response_text
+
+
 class PromptHarness(MainPromptMixin, StateUpdateMixin, TTSMixin):
-    def __init__(self, task_states_dir: Path, output_dir: Path):
-        self.text_model = "fake-text-model"
-        self.vision_model = "fake-vision-model"
-        self.voice_model = "fake-voice-model"
-        self.voice_name = "charon"
+    def __init__(self, task_states_dir: Path, output_dir: Path, *, use_real_client: bool = False):
+        self.text_model = TEXT_MODEL if use_real_client else "fake-text-model"
+        self.vision_model = VISION_MODEL if use_real_client else "fake-vision-model"
+        self.voice_model = VOICE_MODEL if use_real_client else "fake-voice-model"
+        self.voice_name = DEFAULT_VOICE_NAME
         self.output_dir = output_dir
         self.task_states_dir = task_states_dir
-        self.client = FakeClient()
+        self.client = None if use_real_client else FakeClient()
+        self.use_real_client = use_real_client
         self.image_paths = []
         self.task_image_paths = []
         self.prompt_number = None
@@ -82,6 +153,10 @@ class PromptHarness(MainPromptMixin, StateUpdateMixin, TTSMixin):
         self.selected_model = ""
 
     def get_client(self):
+        if self.client is None:
+            from google import genai
+
+            self.client = genai.Client(api_key=_load_api_key())
         return self.client
 
 
@@ -107,31 +182,43 @@ def _call_with_supported_kwargs(func, **kwargs):
     return func(**supported_kwargs)
 
 
-def test_prompt_1_run_first_prompt() -> dict[str, str]:
+def test_prompt_1_run_first_prompt(args: argparse.Namespace) -> dict[str, str]:
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         image_path = root / "diagram.png"
         _write_png(image_path)
         _seed_task(root, "task1", "X part broken")
 
-        harness = PromptHarness(task_states_dir=root, output_dir=root / "generated_audio")
+        harness = PromptHarness(
+            task_states_dir=root,
+            output_dir=root / "generated_audio",
+            use_real_client=args.real,
+        )
+        image_paths = [] if args.real else [image_path]
         result = harness.run_first_prompt(
-            image_paths=[image_path],
+            image_paths=image_paths,
             text_source_1="source one",
             text_source_2="source two",
             task_name="task1",
         )
 
-        assert result["selected_model"] == "fake-vision-model"
         assert result["task_status"] == "X part broken"
-        assert result["response_text"] == "fake response from fake-vision-model"
+        if args.real:
+            response_text = _assert_non_empty_response(result, real_mode=True)
+            selected_model = str(result.get("selected_model") or "")
+        else:
+            assert result["selected_model"] == "fake-vision-model"
+            assert result["response_text"] == "fake response from fake-vision-model"
+            response_text = str(result["response_text"])
+            selected_model = str(result["selected_model"])
+
         return {
-            "selected_model": str(result["selected_model"]),
-            "response_text": str(result["response_text"]),
+            "selected_model": selected_model,
+            "response_text": response_text,
         }
 
 
-def test_prompt_2_run_second_prompt() -> dict[str, str]:
+def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
     second_prompt_module = importlib.import_module("ApiScripts.mainPrompt")
     second_prompt_mixin = getattr(second_prompt_module, "SecondPromptMixin", None)
     if second_prompt_mixin is None or not hasattr(second_prompt_mixin, "run_second_prompt"):
@@ -145,45 +232,71 @@ def test_prompt_2_run_second_prompt() -> dict[str, str]:
         _write_png(image_path)
         _seed_task(root, "task1", "current task state")
 
-        harness = prompt_two_harness_class(task_states_dir=root, output_dir=root / "generated_audio")
+        harness = prompt_two_harness_class(
+            task_states_dir=root,
+            output_dir=root / "generated_audio",
+            use_real_client=args.real,
+        )
+        image_paths = [] if args.real else [image_path]
         result = _call_with_supported_kwargs(
             harness.run_second_prompt,
             first_prompt_response="diagram labels and arrows",
             task_name="task1",
             text_source_1="current task state",
             text_source_2="spoken user input",
-            image_paths=[image_path],
+            image_paths=image_paths,
             mode="text",
         )
 
         if not isinstance(result, dict):
             raise AssertionError("run_second_prompt must return a dict.")
 
+        _assert_non_empty_response(result, real_mode=args.real)
+
         return {
             "result_keys": ", ".join(sorted(str(key) for key in result.keys())) or "<empty>",
         }
 
 
-def test_prompt_3_run_third_prompt() -> dict[str, str]:
+def test_prompt_3_run_third_prompt(args: argparse.Namespace) -> dict[str, str]:
+    if args.real and not args.include_voice:
+        raise SkipTest("Prompt 3 voice test is skipped in --real mode. Use --include-voice to enable it.")
+
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
-        harness = PromptHarness(task_states_dir=root / "taskStates", output_dir=root / "generated_audio")
+        harness = PromptHarness(
+            task_states_dir=root / "taskStates",
+            output_dir=root / "generated_audio",
+            use_real_client=args.real,
+        )
         result = harness.run_third_prompt("Tighten the loose bracket.")
         audio_path = Path(str(result["audio_path"]))
 
         assert audio_path.exists()
-        assert audio_path.read_bytes() == b"RIFFfake-audio"
-        assert result["audio_mime_type"] == "audio/wav"
+        if args.real:
+            if audio_path.stat().st_size == 0:
+                raise AssertionError("Voice output file is empty.")
+            audio_mime_type = str(result.get("audio_mime_type") or "")
+            if not audio_mime_type.startswith("audio/"):
+                raise AssertionError(f"Unexpected audio MIME type: {audio_mime_type}")
+        else:
+            assert audio_path.read_bytes() == b"RIFFfake-audio"
+            assert result["audio_mime_type"] == "audio/wav"
+
         return {
             "audio_path": str(audio_path),
             "audio_mime_type": str(result["audio_mime_type"]),
         }
 
 
-def test_prompt_4_run_fourth_prompt() -> dict[str, str]:
+def test_prompt_4_run_fourth_prompt(args: argparse.Namespace) -> dict[str, str]:
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
-        harness = PromptHarness(task_states_dir=root / "taskStates", output_dir=root / "generated_audio")
+        harness = PromptHarness(
+            task_states_dir=root / "taskStates",
+            output_dir=root / "generated_audio",
+            use_real_client=args.real,
+        )
         result = harness.run_fourth_prompt("task4", "Replace the bent pin")
         status_path = root / "taskStates" / "task4" / "text1.txt"
 
@@ -212,7 +325,33 @@ def main() -> int:
         default="all",
         help="Run a single prompt test or the full set.",
     )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--real",
+        dest="real",
+        action="store_true",
+        help="Run tests with real Gemini API calls (default).",
+    )
+    mode_group.add_argument(
+        "--fake",
+        dest="real",
+        action="store_false",
+        help="Run tests with the local fake client (no external Gemini calls).",
+    )
+    parser.add_argument(
+        "--include-voice",
+        action="store_true",
+        help="When used with --real, also run prompt 3 voice synthesis.",
+    )
+    parser.set_defaults(real=True)
     args = parser.parse_args()
+
+    if args.real:
+        try:
+            _load_api_key()
+        except Exception as exc:
+            print(f"[FAIL] real-mode setup: {type(exc).__name__}: {exc}")
+            return 1
 
     selected_prompts = TESTS.keys() if args.prompt == "all" else [args.prompt]
     failures = 0
@@ -220,7 +359,7 @@ def main() -> int:
     for prompt_key in selected_prompts:
         label, test_func = TESTS[prompt_key]
         try:
-            details = test_func()
+            details = test_func(args)
         except SkipTest as exc:
             print(f"[SKIP] {label}: {exc}")
             continue
