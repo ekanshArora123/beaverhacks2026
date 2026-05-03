@@ -6,9 +6,9 @@ A dynamic graphics display application with image upload API endpoints.
 
 - **AIBackend/** - Python AI/backend service
 - **ts-frontend/** - Original TypeScript frontend
-- **ui-v1/** - React/TypeScript UI with webcam and image display features
+- **frontend/** - React/TypeScript UI with webcam and image display features
 
-## Quick Start - UI-V1 Frontend
+## Quick Start - Frontend
 
 ### Prerequisites
 
@@ -19,7 +19,7 @@ A dynamic graphics display application with image upload API endpoints.
 ### Installation
 
 ```bash
-cd ui-v1
+cd frontend
 npm install
 ```
 
@@ -29,7 +29,7 @@ You need to run **two servers** in separate terminals:
 
 **Terminal 1 - Start Backend API Server:**
 ```bash
-cd ui-v1
+cd frontend
 npm run server
 ```
 - Runs on http://localhost:3001
@@ -37,7 +37,7 @@ npm run server
 
 **Terminal 2 - Start Frontend Dev Server:**
 ```bash
-cd ui-v1
+cd frontend
 npm run dev
 ```
 - Runs on http://localhost:5173
@@ -45,7 +45,7 @@ npm run dev
 
 **OR use the quick launcher (Windows):**
 ```bash
-cd ui-v1
+cd frontend
 start-servers.bat
 ```
 
@@ -60,7 +60,7 @@ start-servers.bat
 
 **Send an image from Python:**
 ```bash
-cd ui-v1
+cd frontend
 pip install requests
 python send_image_example.py path/to/image.png example1
 ```
@@ -88,8 +88,8 @@ with open('image.png', 'rb') as f:
 
 ### Documentation
 
-- [ui-v1/PROJECT_README.md](ui-v1/PROJECT_README.md) - Detailed project documentation
-- [ui-v1/API_DOCUMENTATION.md](ui-v1/API_DOCUMENTATION.md) - Complete API reference
-- [ui-v1/TESTING.md](ui-v1/TESTING.md) - Testing guide with examples
+- [frontend/PROJECT_README.md](frontend/PROJECT_README.md) - Detailed project documentation
+- [frontend/API_DOCUMENTATION.md](frontend/API_DOCUMENTATION.md) - Complete API reference
+- [frontend/TESTING.md](frontend/TESTING.md) - Testing guide with examples
 
 # 

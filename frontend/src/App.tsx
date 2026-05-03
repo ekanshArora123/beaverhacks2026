@@ -13,20 +13,20 @@ function App() {
   const [imageTimestamp, setImageTimestamp] = useState(Date.now())
 
   useEffect(() => {
-    // Request webcam access
+    // Request webcam and microphone access
     const enableWebcam = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: true,
-          audio: false 
+          audio: true 
         })
         
         if (videoRef.current) {
           videoRef.current.srcObject = stream
         }
       } catch (error) {
-        console.error('Error accessing webcam:', error)
-        setWebcamError('Unable to access webcam. Please grant camera permissions.')
+        console.error('Error accessing webcam/microphone:', error)
+        setWebcamError('Unable to access webcam/microphone. Please grant permissions.')
       }
     }
 

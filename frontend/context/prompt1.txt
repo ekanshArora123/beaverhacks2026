@@ -1,0 +1,12 @@
+
+
+Goal: Prepare the frontend ui to send image(s) and audio 
+        to an api endpoint in backend. 
+    
+Context: 
+    Currently the frontend has an express server and a react server. 
+    The UI has audio/video capabilities,
+     it just needs to encode and prepare an api requrest. 
+
+    Gain familiarity with the backend ./AIBackend
+
