@@ -10,6 +10,7 @@ interface AnalyzeResponse {
   text?: string
   image?: string | null
   image_mime?: string | null
+  user_input_text?: string
   model?: string
   error?: string
 }
@@ -30,6 +31,7 @@ const RECORDER_FORMAT_CANDIDATES: RecorderFormat[] = [
   { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
   { mimeType: 'audio/webm', extension: 'webm' },
 ]
+const LOOP_TRANSCRIPT_HISTORY_LIMIT = 8
 
 function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -65,6 +67,7 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
+  const loopTranscriptsRef = useRef<string[]>([])
 
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
@@ -123,9 +126,6 @@ function App() {
             setTranscription("Listening mode paused.")
             return
           }
-          // Audio chunks are accumulated across sessions
-          // They will be sent together with images when user clicks Send
-          const count = audioChunksRef.current.length
           setTranscription(`Processing voice...`)
           setShouldSubmit(true)
         }
@@ -182,6 +182,8 @@ function App() {
             if (!isSpeaking) {
               isSpeaking = true
               if (mediaRecorder.state === "inactive") {
+                // Looping mode sends only the latest clip, not historical audio batches.
+                audioChunksRef.current = []
                 // Ensure audio context is running (browsers suspend it if no user interaction occurred)
                 if (localAudioContext.state === 'suspended') {
                   void localAudioContext.resume()
@@ -291,13 +293,16 @@ function App() {
             dataUrl = canvas.toDataURL('image/png')
             
             // Show the user what we just automatically captured
-            setCapturedImages([{ id: Date.now().toString(), dataUrl }])
+            setCapturedImages((previousImages) => [
+              ...previousImages,
+              { id: Date.now().toString(), dataUrl },
+            ].slice(-LOOP_TRANSCRIPT_HISTORY_LIMIT))
           }
         }
 
         if (dataUrl) {
           console.log('📸 Auto-captured photo from webcam! Submitting to backend now...')
-          await sendToBackend(dataUrl)
+          await sendToBackend(dataUrl, true)
         }
       }
 
@@ -305,12 +310,16 @@ function App() {
     }
   }, [shouldSubmit])
 
-  const getAnalysisPrompt = () => {
-    const normalizedTranscription = transcription.trim()
-    if (!normalizedTranscription || normalizedTranscription === 'Listening...' || normalizedTranscription === 'Thinking...') {
-      return DEFAULT_ANALYZE_PROMPT
+  const buildRollingLoopContext = () => {
+    if (loopTranscriptsRef.current.length === 0) {
+      return ''
     }
-    return normalizedTranscription
+
+    const recentTranscripts = loopTranscriptsRef.current.slice(-LOOP_TRANSCRIPT_HISTORY_LIMIT)
+    return [
+      'Recent technician voice updates (oldest to newest):',
+      ...recentTranscripts.map((entry, index) => `${index + 1}. ${entry}`)
+    ].join('\n')
   }
 
   const captureImage = () => {
@@ -345,8 +354,8 @@ function App() {
     setCapturedImages(prev => prev.filter(img => img.id !== id))
   }
 
-  const sendToBackend = async (autoDataUrl?: string) => {
-    const urlToUse = autoDataUrl || (capturedImages.length > 0 ? capturedImages[0].dataUrl : null)
+  const sendToBackend = async (autoDataUrl?: string, isLoopSubmission = false) => {
+    const urlToUse = autoDataUrl || (capturedImages.length > 0 ? capturedImages[capturedImages.length - 1].dataUrl : null)
 
     if (!urlToUse) {
       alert('Please capture at least one image first')
@@ -368,10 +377,21 @@ function App() {
 
       const formData = new FormData()
       formData.append('file', imageBlob, 'capture.png')
-      formData.append('prompt', getAnalysisPrompt())
+      const hasAudioClip = audioChunksRef.current.length > 0 && recorderFormatRef.current
+
+      if (!hasAudioClip) {
+        formData.append('prompt', DEFAULT_ANALYZE_PROMPT)
+      }
+
+      if (isLoopSubmission) {
+        const rollingLoopContext = buildRollingLoopContext()
+        if (rollingLoopContext) {
+          formData.append('text_source_1', rollingLoopContext)
+        }
+      }
 
       // Append accumulated audio if available
-      if (audioChunksRef.current.length > 0 && recorderFormatRef.current) {
+      if (hasAudioClip && recorderFormatRef.current) {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderFormatRef.current.mimeType })
         formData.append('audio', audioBlob, `recording.${recorderFormatRef.current.extension}`)
         
@@ -416,14 +436,31 @@ function App() {
       const responseText = result?.text || 'No response'
       setAnalysisResult(responseText)
 
+      const transcribedUserInput = (result?.user_input_text || '').trim()
+      if (isLoopSubmission && transcribedUserInput) {
+        const previousEntries = loopTranscriptsRef.current
+        const latestEntry = previousEntries[previousEntries.length - 1]
+        if (transcribedUserInput !== latestEntry) {
+          loopTranscriptsRef.current = [
+            ...previousEntries,
+            transcribedUserInput,
+          ].slice(-LOOP_TRANSCRIPT_HISTORY_LIMIT)
+        }
+        setTranscription(`Heard: ${transcribedUserInput}`)
+      }
+
       // Stop any existing speech and read the new response aloud
       window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(responseText)
       window.speechSynthesis.speak(utterance)
 
-      setCapturedImages([])
+      if (!isLoopSubmission) {
+        setCapturedImages([])
+      }
       audioChunksRef.current = [] // Reset accumulated audio
-      setTranscription('') // Clear transcription after successful send
+      if (!isLoopSubmission) {
+        setTranscription('') // Clear transcription after successful send
+      }
     } catch (error) {
       console.error('Error sending to backend:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -562,7 +599,9 @@ function App() {
           </div>
           <button
             className="send-button"
-            onClick={sendToBackend}
+            onClick={() => {
+              void sendToBackend()
+            }}
             disabled={isSending}
           >
             {isSending ? 'Sending...' : `Send ${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`}
