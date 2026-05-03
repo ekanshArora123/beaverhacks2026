@@ -1,11 +1,48 @@
 param(
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$SeparateWindows,
+    [switch]$SingleTerminal
 )
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $frontendDir = Join-Path $repoRoot "frontend"
 $backendScript = Join-Path $repoRoot "backend\start_server.py"
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$keysEnvFile = Join-Path $repoRoot "keys.env"
+
+function Get-GeminiApiKeyFromEnvFile {
+    param(
+        [string]$FilePath
+    )
+
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) {
+        return $null
+    }
+
+    foreach ($rawLine in Get-Content -LiteralPath $FilePath) {
+        $line = $rawLine.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            continue
+        }
+
+        $candidateValue = $line
+        if ($line.StartsWith("GEMINI_API_KEY=")) {
+            $candidateValue = $line.Substring("GEMINI_API_KEY=".Length).Trim()
+        }
+
+        if ($candidateValue.StartsWith('"') -and $candidateValue.EndsWith('"') -and $candidateValue.Length -ge 2) {
+            $candidateValue = $candidateValue.Substring(1, $candidateValue.Length - 2)
+        } elseif ($candidateValue.StartsWith("'") -and $candidateValue.EndsWith("'") -and $candidateValue.Length -ge 2) {
+            $candidateValue = $candidateValue.Substring(1, $candidateValue.Length - 2)
+        }
+
+        if ($candidateValue) {
+            return $candidateValue
+        }
+    }
+
+    return $null
+}
 
 if (-not (Test-Path -LiteralPath $frontendDir -PathType Container)) {
     throw "Frontend directory not found: $frontendDir"
@@ -25,29 +62,89 @@ if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
     $pythonExecutable = $pythonCommand.Source
 }
 
+$geminiKeySource = "environment"
+if (-not $env:GEMINI_API_KEY) {
+    $fileApiKey = Get-GeminiApiKeyFromEnvFile -FilePath $keysEnvFile
+    if ($fileApiKey) {
+        $env:GEMINI_API_KEY = $fileApiKey
+        $geminiKeySource = "keys.env"
+    } else {
+        $geminiKeySource = "not-found"
+    }
+}
+
 $backendCommand = "& { Set-Location -LiteralPath '$repoRoot'; & '$pythonExecutable' '$backendScript' }"
 $frontendCommand = "& { Set-Location -LiteralPath '$frontendDir'; npm run dev }"
 
+if ($SingleTerminal -and $SeparateWindows) {
+    throw "Use either -SingleTerminal or -SeparateWindows, not both."
+}
+
+$useSingleTerminal = $SingleTerminal
+
+$shellCommand = Get-Command powershell -ErrorAction SilentlyContinue
+if ($null -eq $shellCommand) {
+    $shellCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+}
+
+if ($null -eq $shellCommand) {
+    throw "No PowerShell executable found for launching separate windows."
+}
+
+$shellExecutable = $shellCommand.Source
+
 if ($DryRun) {
+    Write-Host "Mode: $(if ($useSingleTerminal) { 'SingleTerminal' } else { 'SeparateWindows' })"
+    Write-Host "Shell executable: $shellExecutable"
+    Write-Host "GEMINI_API_KEY source: $geminiKeySource"
     Write-Host "Backend command: $backendCommand"
     Write-Host "Frontend command: $frontendCommand"
     exit 0
 }
 
-Start-Process powershell -WorkingDirectory $repoRoot -ArgumentList @(
-    "-NoExit",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-Command",
-    $backendCommand
-) | Out-Null
+if ($geminiKeySource -eq "not-found") {
+    Write-Host "Warning: GEMINI_API_KEY not found in environment or keys.env."
+}
 
-Start-Process powershell -WorkingDirectory $frontendDir -ArgumentList @(
-    "-NoExit",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-Command",
-    $frontendCommand
-) | Out-Null
+if (-not $useSingleTerminal) {
+    $backendProcess = Start-Process -FilePath $shellExecutable -WorkingDirectory $repoRoot -ArgumentList @(
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        $backendCommand
+    ) -WindowStyle Normal -PassThru
 
-Write-Host "Started backend and frontend in separate PowerShell windows."
+    $frontendProcess = Start-Process -FilePath $shellExecutable -WorkingDirectory $frontendDir -ArgumentList @(
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        $frontendCommand
+    ) -WindowStyle Normal -PassThru
+
+    Write-Host "Started backend and frontend in separate PowerShell windows."
+    Write-Host "Backend PID: $($backendProcess.Id)"
+    Write-Host "Frontend PID: $($frontendProcess.Id)"
+    exit 0
+}
+
+$backendJob = Start-Job -Name "beaverhacks-backend" -ScriptBlock {
+    param($workingDirectory, $pythonPath, $scriptPath)
+    Set-Location -LiteralPath $workingDirectory
+    & $pythonPath $scriptPath
+} -ArgumentList $repoRoot, $pythonExecutable, $backendScript
+
+Write-Host "Backend started in background job $($backendJob.Id)."
+Write-Host "Frontend is starting in the current terminal. Press Ctrl+C to stop both."
+
+try {
+    Set-Location -LiteralPath $frontendDir
+    npm run dev
+}
+finally {
+    if ($null -ne $backendJob) {
+        Stop-Job -Job $backendJob -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job -Job $backendJob -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+}
