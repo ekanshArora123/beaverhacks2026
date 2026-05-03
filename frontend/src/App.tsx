@@ -36,14 +36,13 @@ const USER_IMAGE_FALLBACK_LIMIT = 3
 const USER_IMAGE_CONTEXT_SOFT_COUNT_LIMIT = 8
 const USER_IMAGE_CONTEXT_SOFT_BYTES_LIMIT = 15 * 1024 * 1024
 const TEXT_CONTEXT_SOFT_CHAR_LIMIT = 4000
-const DEFAULT_SCHEMATIC_IMAGE_PATH = 'taskContext/task1/3d_printer.jpg'
 const configuredSchematicPaths = ((import.meta.env.VITE_SCHEMATIC_IMAGE_PATHS as string | undefined) || '')
   .split(',')
   .map((path) => path.trim())
   .filter(Boolean)
 const SCHEMATIC_IMAGE_PATHS = configuredSchematicPaths.length > 0
   ? configuredSchematicPaths
-  : [DEFAULT_SCHEMATIC_IMAGE_PATH]
+  : []
 
 function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
