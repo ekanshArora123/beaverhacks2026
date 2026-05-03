@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo   UI-V1 Dual Server Launcher
+echo   Frontend Dual Server Launcher
 echo ========================================
 echo.
 echo This will start both:

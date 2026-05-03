@@ -1,0 +1,9 @@
+
+
+1. 5pm start on branch frontend
+
+Review before merge: 
+    - Project root README
+    - Audio/video collection 
+    - Frontend readmes (needs attention)
+    - 

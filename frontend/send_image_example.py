@@ -1,5 +1,5 @@
 """
-Example Python script showing how to send images to the ui-v1 API endpoint.
+Example Python script showing how to send images to the frontend API endpoint.
 
 This demonstrates how a Flask server (or any Python application) can upload
 images to the Node.js/Express API.
@@ -102,7 +102,7 @@ def flask_example():
     @app.route('/process-image', methods=['POST'])
     def process_image():
         """
-        Flask endpoint that receives an image and forwards it to the ui-v1 API.
+        Flask endpoint that receives an image and forwards it to the frontend API.
         """
         if 'image' not in request.files:
             return jsonify({'error': 'No image provided'}), 400
@@ -115,7 +115,7 @@ def flask_example():
             tmp_path = tmp.name
         
         try:
-            # Forward to ui-v1 API
+            # Forward to frontend API
             result = upload_image(tmp_path)
             return jsonify(result)
         finally:
