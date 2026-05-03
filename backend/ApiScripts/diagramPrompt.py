@@ -11,14 +11,6 @@ from typing import Literal, Sequence
 from google import genai
 from google.genai import types
 
-try:
-	from . import prompt as prompt_module
-except ImportError:
-	try:
-		import promptScripts.prompt as prompt_module
-	except ImportError:
-		prompt_module = None
-
 
 SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
@@ -81,16 +73,11 @@ class MainPromptMixin:
 		)
 
 	def get_prompt(self, prompt_number: int) -> str:
-		prompt_name = f"PROMPT{prompt_number}"
-		prompt_value = getattr(prompt_module, prompt_name, None) if prompt_module else None
-		if isinstance(prompt_value, str) and prompt_value.strip():
-			return prompt_value.strip()
-
 		default_prompt = DEFAULT_PROMPTS.get(prompt_number)
 		if default_prompt:
 			return default_prompt
 
-		raise ValueError(f"{prompt_name} is not defined.")
+		raise ValueError(f"PROMPT{prompt_number} is not defined.")
 
 	def generate_for_task(
 		self,
