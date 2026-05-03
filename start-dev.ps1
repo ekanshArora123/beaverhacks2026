@@ -140,7 +140,8 @@ if (-not $env:GEMINI_API_KEY) {
 }
 
 $backendCommand = "& { Set-Location -LiteralPath '$repoRoot'; & '$pythonExecutable' '$backendScript' }"
-$frontendCommand = "& { Set-Location -LiteralPath '$frontendDir'; if (-not `$env:ComSpec) { `$env:ComSpec = '$defaultComSpec' }; npx vite --open }"
+$frontendViteCommand = if ($NoBrowser) { "npx vite" } else { "npx vite --open" }
+$frontendCommand = "& { Set-Location -LiteralPath '$frontendDir'; if (-not `$env:ComSpec) { `$env:ComSpec = '$defaultComSpec' }; $frontendViteCommand }"
 
 if ($SingleTerminal -and $SeparateWindows) {
     throw "Use either -SingleTerminal or -SeparateWindows, not both."
@@ -195,50 +196,7 @@ if (-not $useSingleTerminal) {
     Write-Host "Backend PID: $($backendProcess.Id)"
     Write-Host "Frontend PID: $($frontendProcess.Id)"
 
-    if (-not $NoBrowser) {
-        Open-FrontendBrowser -Url $frontendUrl -HostName $frontendHost -Port $frontendPort -TimeoutSeconds 25 | Out-Null
-    }
-
     exit 0
-}
-
-$frontendBrowserJob = $null
-
-$frontendBrowserJob = if (-not $NoBrowser) {
-    Start-Job -Name "beaverhacks-open-browser" -ScriptBlock {
-        param($url, $hostName, $port)
-
-        $hostCandidates = @($hostName, "127.0.0.1", "::1") | Select-Object -Unique
-
-        $deadline = (Get-Date).AddSeconds(25)
-        while ((Get-Date) -lt $deadline) {
-            foreach ($hostCandidate in $hostCandidates) {
-                $client = $null
-                try {
-                    $client = [System.Net.Sockets.TcpClient]::new()
-                    $connectTask = $client.ConnectAsync($hostCandidate, $port)
-                    if ($connectTask.Wait(500) -and $client.Connected) {
-                        Start-Process $url
-                        return
-                    }
-                }
-                catch {
-                    # Ignore and retry until timeout.
-                }
-                finally {
-                    if ($null -ne $client) {
-                        $client.Dispose()
-                    }
-                }
-            }
-
-            Start-Sleep -Milliseconds 500
-        }
-
-        Start-Process $url
-    } -ArgumentList $frontendUrl, $frontendHost, $frontendPort
-} else {
-    $null
 }
 
 $backendJob = Start-Job -Name "beaverhacks-backend" -ScriptBlock {
@@ -255,14 +213,14 @@ try {
     if (-not $env:ComSpec) {
         $env:ComSpec = $defaultComSpec
     }
-    npx vite --open
+    if ($NoBrowser) {
+        npx vite
+    }
+    else {
+        npx vite --open
+    }
 }
 finally {
-    if ($null -ne $frontendBrowserJob) {
-        Stop-Job -Job $frontendBrowserJob -ErrorAction SilentlyContinue | Out-Null
-        Remove-Job -Job $frontendBrowserJob -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-
     if ($null -ne $backendJob) {
         Stop-Job -Job $backendJob -ErrorAction SilentlyContinue | Out-Null
         Remove-Job -Job $backendJob -Force -ErrorAction SilentlyContinue | Out-Null
