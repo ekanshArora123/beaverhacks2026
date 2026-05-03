@@ -568,15 +568,17 @@ function App() {
 
         {/* Right column: Webcam (or phone pairing panel when phone mode is active) */}
         <div className="webcam-column">
-          <div className="input-mode-bar">
-            <button
-              className={`input-mode-button ${usePhoneInput ? 'input-mode-active' : ''}`}
-              onClick={togglePhoneInputMode}
-              title={usePhoneInput ? 'Stop using phone as input' : 'Use Android phone as input device'}
-            >
-              {usePhoneInput ? 'Phone On' : 'Use Phone'}
-            </button>
-          </div>
+          {usePhoneInput && (
+            <div className="input-mode-bar">
+              <button
+                className="input-mode-button input-mode-active"
+                onClick={togglePhoneInputMode}
+                title="Stop using phone as input"
+              >
+                Phone On
+              </button>
+            </div>
+          )}
 
           {usePhoneInput ? (
             <SessionPairingPanel
@@ -620,6 +622,14 @@ function App() {
                     type="button"
                   >
                     <span className="control-label">{isRecording ? 'Stop' : 'Record'}</span>
+                  </button>
+                  <button
+                    className="webcam-control-button"
+                    onClick={togglePhoneInputMode}
+                    title="Use Android phone as input device"
+                    type="button"
+                  >
+                    <span className="control-label">Use Phone</span>
                   </button>
                 </div>
               )}
