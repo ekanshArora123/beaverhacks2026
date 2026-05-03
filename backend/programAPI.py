@@ -1,10 +1,11 @@
-
 import base64
 import importlib.util
+import json
 import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -12,14 +13,19 @@ from google import genai
 from google.genai import types
 
 try:
-    from .promptScripts.voiceToText import (
+    from .AIBackend import GeminiSequenceBackend
+except ImportError:
+    from AIBackend import GeminiSequenceBackend
+
+try:
+    from .ApiScripts.voiceToText import (
         DEFAULT_TRANSCRIPTION_PROMPT,
         SUPPORTED_AUDIO_SUFFIXES,
         VOICE_TO_TEXT_MODEL,
         transcribe_audio_file,
     )
 except ImportError:
-    from promptScripts.voiceToText import (
+    from ApiScripts.voiceToText import (
         DEFAULT_TRANSCRIPTION_PROMPT,
         SUPPORTED_AUDIO_SUFFIXES,
         VOICE_TO_TEXT_MODEL,
@@ -46,6 +52,10 @@ GEMINI_KEY = _load_repo_key()
 app = Flask(__name__)
 CORS(app)
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent
+FRONTEND_PUBLIC_DIR = REPO_ROOT / "frontend" / "public"
+
 ANALYZE_MODEL = "gemini-2.0-flash"
 GENERATE_MODEL = "gemini-3-pro-image-preview"
 
@@ -53,6 +63,8 @@ SUPPORTED_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif",
     ".mp4", ".mov", ".avi", ".mkv", ".webm",
 }
+SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+PROMPT_UPLOAD_FIELD_NAMES = ("images", "image", "files")
 
 
 def get_client() -> genai.Client:
@@ -60,6 +72,177 @@ def get_client() -> genai.Client:
     if not api_key:
         raise RuntimeError("Set the GEMINI_API_KEY environment variable.")
     return genai.Client(api_key=api_key)
+
+
+def create_sequence_backend() -> GeminiSequenceBackend:
+    return GeminiSequenceBackend()
+
+
+def _get_json_payload() -> dict[str, object]:
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _read_request_value(payload: dict[str, object], field_name: str, default: object = None) -> object:
+    if field_name in payload:
+        return payload[field_name]
+
+    if field_name in request.form:
+        return request.form.get(field_name, default)
+
+    return default
+
+
+def _read_request_list(payload: dict[str, object], field_name: str) -> list[str]:
+    if field_name in payload:
+        raw_value = payload[field_name]
+        if raw_value is None:
+            return []
+        if isinstance(raw_value, (list, tuple)):
+            return [str(item).strip() for item in raw_value if str(item).strip()]
+        if isinstance(raw_value, str):
+            stripped_value = raw_value.strip()
+            if not stripped_value:
+                return []
+            if stripped_value.startswith("["):
+                try:
+                    parsed_value = json.loads(stripped_value)
+                except json.JSONDecodeError:
+                    return [stripped_value]
+                if isinstance(parsed_value, list):
+                    return [str(item).strip() for item in parsed_value if str(item).strip()]
+            return [stripped_value]
+        return [str(raw_value).strip()]
+
+    form_values = request.form.getlist(field_name)
+    return [value.strip() for value in form_values if value and value.strip()]
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+
+    normalized_value = str(value).strip()
+    return normalized_value or None
+
+
+def _required_str(value: object, field_name: str) -> str:
+    normalized_value = _optional_str(value)
+    if not normalized_value:
+        raise ValueError(f"{field_name} is required")
+    return normalized_value
+
+
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_workspace_file(raw_path: str, *, allowed_suffixes: set[str] | None = None) -> Path:
+    normalized_text = raw_path.strip()
+    if not normalized_text:
+        raise ValueError("path cannot be empty")
+    if normalized_text.startswith(("http://", "https://")):
+        raise ValueError("Remote URLs are not supported. Send uploaded files or workspace paths instead.")
+
+    stripped_text = normalized_text.lstrip("/\\")
+    raw_candidate = Path(normalized_text).expanduser()
+    candidate_paths: list[Path] = []
+
+    if raw_candidate.is_absolute():
+        candidate_paths.append(raw_candidate)
+    else:
+        candidate_paths.extend(
+            [
+                REPO_ROOT / normalized_text,
+                REPO_ROOT / stripped_text,
+                BACKEND_DIR / normalized_text,
+                BACKEND_DIR / stripped_text,
+                FRONTEND_PUBLIC_DIR / stripped_text,
+            ]
+        )
+
+    seen_paths: set[str] = set()
+    for candidate_path in candidate_paths:
+        resolved_path = candidate_path.resolve()
+        resolved_key = str(resolved_path).lower()
+        if resolved_key in seen_paths:
+            continue
+        seen_paths.add(resolved_key)
+
+        if resolved_path.exists() and resolved_path.is_file():
+            if allowed_suffixes and resolved_path.suffix.lower() not in allowed_suffixes:
+                allowed_text = ", ".join(sorted(suffix.lstrip(".") for suffix in allowed_suffixes))
+                raise ValueError(f"Unsupported file type for {resolved_path.name}. Use {allowed_text}.")
+            return resolved_path
+
+    raise FileNotFoundError(f"File not found for path: {normalized_text}")
+
+
+def _iter_uploaded_files(field_names: tuple[str, ...]) -> list[Any]:
+    uploaded_files: list[Any] = []
+    for field_name in field_names:
+        uploaded_files.extend(
+            file for file in request.files.getlist(field_name) if file and getattr(file, "filename", "")
+        )
+    return uploaded_files
+
+
+def _save_uploaded_files(temp_dir: Path, *, allowed_suffixes: set[str], field_names: tuple[str, ...]) -> list[Path]:
+    saved_paths: list[Path] = []
+    for index, uploaded_file in enumerate(_iter_uploaded_files(field_names), start=1):
+        suffix = Path(uploaded_file.filename).suffix.lower()
+        if suffix not in allowed_suffixes:
+            allowed_text = ", ".join(sorted(item.lstrip(".") for item in allowed_suffixes))
+            raise ValueError(f"Unsupported file type for {uploaded_file.filename}. Use {allowed_text}.")
+
+        destination = temp_dir / f"upload_{index}{suffix}"
+        uploaded_file.save(destination)
+        saved_paths.append(destination)
+
+    return saved_paths
+
+
+def _collect_image_paths(payload: dict[str, object], temp_dir: Path) -> list[Path]:
+    raw_image_paths = _read_request_list(payload, "image_paths")
+    single_image_path = _optional_str(_read_request_value(payload, "image_path"))
+    if single_image_path:
+        raw_image_paths.append(single_image_path)
+
+    resolved_paths = [
+        _resolve_workspace_file(raw_path, allowed_suffixes=SUPPORTED_IMAGE_SUFFIXES)
+        for raw_path in raw_image_paths
+    ]
+    uploaded_paths = _save_uploaded_files(
+        temp_dir,
+        allowed_suffixes=SUPPORTED_IMAGE_SUFFIXES,
+        field_names=PROMPT_UPLOAD_FIELD_NAMES,
+    )
+    return [*resolved_paths, *uploaded_paths]
+
+
+def _attach_audio_payload(value: object) -> object:
+    if isinstance(value, dict):
+        serialized = {key: _attach_audio_payload(nested_value) for key, nested_value in value.items()}
+        audio_path = serialized.get("audio_path")
+        if isinstance(audio_path, str) and audio_path:
+            resolved_audio_path = Path(audio_path)
+            if resolved_audio_path.exists() and resolved_audio_path.is_file():
+                serialized["audio_base64"] = base64.b64encode(resolved_audio_path.read_bytes()).decode("ascii")
+        return serialized
+
+    if isinstance(value, list):
+        return [_attach_audio_payload(item) for item in value]
+
+    return value
+
+
+def _json_error_response(exc: Exception):
+    status_code = 400 if isinstance(exc, (FileNotFoundError, ValueError)) else 500
+    return jsonify({"error": str(exc)}), status_code
 
 
 def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.File:
@@ -137,9 +320,9 @@ def generate():
 
     Response (JSON):
         {
-          "text":       "...",        # may be empty string
-          "image":      "<base64>",   # null if no image was generated
-          "image_mime": "image/png"   # null if no image was generated
+          "text":       "...",
+          "image":      "<base64>",
+          "image_mime": "image/png"
         }
     """
     data = request.get_json(silent=True) or {}
@@ -157,7 +340,7 @@ def generate():
             ),
         )
 
-        result: dict = {"text": "", "image": None, "image_mime": None}
+        result: dict[str, str | None] = {"text": "", "image": None, "image_mime": None}
         for part in response.parts or []:
             if part.text:
                 result["text"] += part.text
@@ -176,43 +359,48 @@ def voice_to_text():
     """
     Transcribe uploaded audio into plain text for later use as prompt 2 user input.
 
-    Request (multipart/form-data):
-        file   - audio file, required
-        prompt - optional transcription instruction
-        model  - optional Gemini model override
-
-    Response (JSON):
-        {
-          "text": "...",
-          "user_input_text": "...",
-          "model": "..."
-        }
+    Request (multipart/form-data or JSON):
+        file       - audio file
+        audio_path - existing workspace audio path
+        prompt     - optional transcription instruction
+        model      - optional Gemini model override
     """
+    payload = _get_json_payload()
     file = request.files.get("file")
-    if not file or not file.filename:
-        return jsonify({"error": "audio file is required"}), 400
+    audio_path = _optional_str(_read_request_value(payload, "audio_path"))
+    if (not file or not file.filename) and not audio_path:
+        return jsonify({"error": "audio file or audio_path is required"}), 400
 
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in SUPPORTED_AUDIO_SUFFIXES:
-        return jsonify({"error": f"Unsupported audio type: {suffix}"}), 400
-
-    prompt = (request.form.get("prompt") or DEFAULT_TRANSCRIPTION_PROMPT).strip()
-    model = (request.form.get("model") or VOICE_TO_TEXT_MODEL).strip()
+    prompt = (_optional_str(_read_request_value(payload, "prompt")) or DEFAULT_TRANSCRIPTION_PROMPT).strip()
+    model = (_optional_str(_read_request_value(payload, "model")) or VOICE_TO_TEXT_MODEL).strip()
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            file.save(tmp.name)
-            tmp_path = Path(tmp.name)
+        if file and file.filename:
+            suffix = Path(file.filename).suffix.lower()
+            if suffix not in SUPPORTED_AUDIO_SUFFIXES:
+                return jsonify({"error": f"Unsupported audio type: {suffix}"}), 400
 
-        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                file.save(tmp.name)
+                tmp_path = Path(tmp.name)
+
+            try:
+                transcript_text = transcribe_audio_file(
+                    client=get_client(),
+                    audio_path=tmp_path,
+                    prompt=prompt,
+                    model=model,
+                )
+            finally:
+                tmp_path.unlink(missing_ok=True)
+        else:
+            resolved_audio_path = _resolve_workspace_file(audio_path, allowed_suffixes=SUPPORTED_AUDIO_SUFFIXES)
             transcript_text = transcribe_audio_file(
                 client=get_client(),
-                audio_path=tmp_path,
+                audio_path=resolved_audio_path,
                 prompt=prompt,
                 model=model,
             )
-        finally:
-            tmp_path.unlink(missing_ok=True)
 
         return jsonify(
             {
@@ -223,13 +411,118 @@ def voice_to_text():
         )
 
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _json_error_response(exc)
+
+
+@app.route("/prompts/1", methods=["POST"])
+def run_prompt_one():
+    payload = _get_json_payload()
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backend = create_sequence_backend()
+            result = backend.run_first_prompt(
+                image_paths=_collect_image_paths(payload, Path(temp_dir)),
+                text_source_1=_optional_str(_read_request_value(payload, "text_source_1")) or "",
+                text_source_2=_optional_str(_read_request_value(payload, "text_source_2")) or "",
+                task_name=_read_request_value(payload, "task_name"),
+                mode=_optional_str(_read_request_value(payload, "mode")) or "text",
+                prompt_text=_optional_str(_read_request_value(payload, "prompt_text")),
+                text_model=_optional_str(_read_request_value(payload, "text_model")),
+                vision_model=_optional_str(_read_request_value(payload, "vision_model")),
+                voice_model=_optional_str(_read_request_value(payload, "voice_model")),
+            )
+        return jsonify(_attach_audio_payload(result))
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
+@app.route("/prompts/2", methods=["POST"])
+def run_prompt_two():
+    payload = _get_json_payload()
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backend = create_sequence_backend()
+            result = backend.run_second_prompt(
+                first_prompt_response=_required_str(
+                    _read_request_value(payload, "first_prompt_response"), "first_prompt_response"
+                ),
+                task_name=_read_request_value(payload, "task_name"),
+                text_source_1=_optional_str(_read_request_value(payload, "text_source_1")) or "",
+                text_source_2=_optional_str(_read_request_value(payload, "text_source_2")) or "",
+                image_paths=_collect_image_paths(payload, Path(temp_dir)),
+                mode=_optional_str(_read_request_value(payload, "mode")) or "text",
+                prompt_text=_optional_str(_read_request_value(payload, "prompt_text")),
+                text_model=_optional_str(_read_request_value(payload, "text_model")),
+                vision_model=_optional_str(_read_request_value(payload, "vision_model")),
+                voice_model=_optional_str(_read_request_value(payload, "voice_model")),
+            )
+        return jsonify(_attach_audio_payload(result))
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
+@app.route("/prompts/3", methods=["POST"])
+def run_prompt_three():
+    payload = _get_json_payload()
+
+    try:
+        backend = create_sequence_backend()
+        result = backend.run_third_prompt(
+            _required_str(_read_request_value(payload, "instruction_text"), "instruction_text")
+        )
+        return jsonify(_attach_audio_payload(result))
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
+@app.route("/prompts/4", methods=["POST"])
+def run_prompt_four():
+    payload = _get_json_payload()
+
+    try:
+        backend = create_sequence_backend()
+        result = backend.run_fourth_prompt(
+            task_name=_required_str(_read_request_value(payload, "task_name"), "task_name"),
+            updated_status=_required_str(_read_request_value(payload, "updated_status"), "updated_status"),
+        )
+        return jsonify(_attach_audio_payload(result))
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
+@app.route("/prompts/run-all", methods=["POST"])
+def run_all_prompts():
+    payload = _get_json_payload()
+
+    try:
+        task_name = _required_str(_read_request_value(payload, "task_name"), "task_name")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backend = create_sequence_backend()
+            result = backend.run_four_prompts(
+                image_paths=_collect_image_paths(payload, Path(temp_dir)),
+                task_name=task_name,
+                text_source_1=_optional_str(_read_request_value(payload, "text_source_1")) or "",
+                text_source_2=_optional_str(_read_request_value(payload, "text_source_2")) or "",
+                updated_status=_optional_str(_read_request_value(payload, "updated_status")),
+                voice_output=_coerce_bool(_read_request_value(payload, "voice_output"), default=True),
+                text_model=_optional_str(_read_request_value(payload, "text_model")),
+                vision_model=_optional_str(_read_request_value(payload, "vision_model")),
+                voice_model=_optional_str(_read_request_value(payload, "voice_model")),
+            )
+        return jsonify(_attach_audio_payload(result))
+    except Exception as exc:
+        return _json_error_response(exc)
 
 
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
     """Start the backend HTTP server and wait for frontend API calls."""
     print(f"Backend API listening on http://{host}:{port}")
-    print("Routes: GET /health, POST /analyze, POST /generate, POST /voice-to-text")
+    print(
+        "Routes: GET /health, POST /analyze, POST /generate, POST /voice-to-text, "
+        "POST /prompts/1, POST /prompts/2, POST /prompts/3, POST /prompts/4, POST /prompts/run-all"
+    )
     app.run(host=host, port=port, debug=debug)
 
 

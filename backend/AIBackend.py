@@ -51,7 +51,7 @@ def load_api_key() -> str:
 	api_key = os.environ.get("GEMINI_API_KEY") or GEMINI_KEY
 	if not api_key:
 		raise RuntimeError(
-			"Set GEMINI_API_KEY or define GEMINI_KEY in AIBackend/keys.py before running the backend."
+			"Set GEMINI_API_KEY or define GEMINI_KEY in keys.py before running the backend."
 		)
 	return api_key
 
