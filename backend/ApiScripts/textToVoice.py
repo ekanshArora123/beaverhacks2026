@@ -14,12 +14,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-# --------------------------------------------------------------------------- #
-# Debug helpers
-# --------------------------------------------------------------------------- #
 
-# Set to True (or pass debug=True to TTSRunner) to load the API key directly
-# from keys.env instead of GEMINI_API_KEY environment variable.
 DEBUG = False
 
 
@@ -208,7 +203,7 @@ class TTSRunner(TTSMixin):
 
 		if debug:
 			print("[TTS/debug] Debug mode ON — loading API key from keys.env")
-			key = "AIzaSyC8nwDCMJI7AUZLd56REo7Yicco3gLCoqM"
+			key = ""
 			if key:
 				print("[TTS/debug] ✓ API key loaded from keys.env")
 				os.environ.setdefault("GEMINI_API_KEY", key)

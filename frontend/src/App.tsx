@@ -10,6 +10,8 @@ interface AnalyzeResponse {
   text?: string
   image?: string | null
   image_mime?: string | null
+  audio_base64?: string
+  audio_mime_type?: string
   user_input_text?: string
   model?: string
   error?: string
@@ -82,6 +84,7 @@ function estimateDataUrlBytes(dataUrl: string): number {
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
@@ -390,10 +393,21 @@ function App() {
         }
       }
 
-      // Stop any existing speech and read the new response aloud
+      // Play returned TTS audio if available, otherwise fall back to browser speech synthesis
       window.speechSynthesis.cancel()
-      const utterance = new SpeechSynthesisUtterance(responseText)
-      window.speechSynthesis.speak(utterance)
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current = null
+      }
+      if (result?.audio_base64) {
+        const audioSrc = `data:${result.audio_mime_type || 'audio/wav'};base64,${result.audio_base64}`
+        const audio = new Audio(audioSrc)
+        audioRef.current = audio
+        void audio.play()
+      } else {
+        const utterance = new SpeechSynthesisUtterance(responseText)
+        window.speechSynthesis.speak(utterance)
+      }
 
       setCapturedImages([])
       audioChunksRef.current = []

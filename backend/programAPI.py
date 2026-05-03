@@ -385,8 +385,13 @@ def analyze():
                 diagram_source=diagram_source,
             )
 
+            tts_result = backend.run_third_prompt(
+                str(second_result.get("response_text") or "")
+            )
+
         serialized_first = _attach_binary_payload(first_result)
         serialized_second = _attach_binary_payload(second_result)
+        serialized_tts = _attach_binary_payload(tts_result)
 
         response_body: dict[str, object] = {}
         if isinstance(serialized_second, dict):
@@ -403,6 +408,12 @@ def analyze():
             or response_body.get("text_model")
         )
         response_body["user_input_text"] = text_source_2
+
+        if isinstance(serialized_tts, dict):
+            audio_b64 = serialized_tts.get("audio_base64")
+            if audio_b64:
+                response_body["audio_base64"] = audio_b64
+                response_body["audio_mime_type"] = serialized_tts.get("audio_mime_type") or "audio/wav"
 
         diagram_image_base64 = response_body.get("diagram_image_base64")
         if isinstance(diagram_image_base64, str) and diagram_image_base64:
