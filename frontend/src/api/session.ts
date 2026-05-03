@@ -8,6 +8,7 @@ export interface PhonePayload {
   audio_extension: string | null
   text_source_2: string | null
   diagram_source: string | null
+  tool_context: string | null
   received_at: number
 }
 
@@ -65,4 +66,25 @@ export async function pollSessionPending(code: string, signal: AbortSignal, time
     throw new Error(`Failed to poll session: ${response.status}`)
   }
   return await response.json() as PhonePayload
+}
+
+export async function fetchMachineFolders(): Promise<string[]> {
+  const response = await fetch(buildSessionUrl('/machine-folders'), withTunnelFetchInit())
+  if (!response.ok) {
+    throw new Error(`Failed to fetch machine folders: ${response.status}`)
+  }
+  const json = await response.json() as { folders?: string[] }
+  return json.folders ?? []
+}
+
+export async function primeToolContext(tool: string): Promise<void> {
+  // Fire-and-forget — we don't need the response, priming runs in a backend thread.
+  await fetch(
+    buildSessionUrl('/set-tool'),
+    withTunnelFetchInit({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool }),
+    }),
+  )
 }
