@@ -94,7 +94,12 @@ function App() {
 
         const recorderFormat = resolveRecorderFormat()
         recorderFormatRef.current = recorderFormat
-        const mediaRecorder = new MediaRecorder(stream, {
+        
+        // Extract only the audio tracks from the stream to avoid NotSupportedError
+        // when using an audio-only MIME type with a stream that contains video.
+        const audioStream = new MediaStream(stream.getAudioTracks())
+        
+        const mediaRecorder = new MediaRecorder(audioStream, {
           mimeType: recorderFormat.mimeType,
         })
         mediaRecorderRef.current = mediaRecorder
@@ -178,11 +183,9 @@ function App() {
             }
           }
 
-          // Debug log - open DevTools (F12) to see this!
-          // If this says 0 continuously, your browser is using the wrong microphone 
-          // or the audio engine is still suspended.
-          if (maxVolume > 0 || localAudioContext.state === 'suspended') {
-            console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state)
+          // Debug log - print every 60 frames (~1 second) to diagnose
+          if (animationFrameId % 60 === 0) {
+            console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state, '| TTS Speaking:', window.speechSynthesis.speaking)
           }
 
           // Loop forever
@@ -210,13 +213,22 @@ function App() {
       }
     }
 
+    let isCancelled = false
     let cleanupInternal: (() => void) | undefined
+    
     void enableMediaCapture().then((cleanupFn) => {
-      cleanupInternal = cleanupFn
+      if (isCancelled && cleanupFn) {
+        // Component unmounted before we finished setting up! Clean up immediately.
+        cleanupFn()
+      } else {
+        cleanupInternal = cleanupFn
+      }
     })
 
     // Cleanup: stop video and audio streams when component unmounts
     return () => {
+      isCancelled = true
+      
       if (cleanupInternal) {
         cleanupInternal()
       }
