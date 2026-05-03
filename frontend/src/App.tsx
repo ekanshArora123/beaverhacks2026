@@ -72,10 +72,11 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
-  
+
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([])
   const [returnedImages, setReturnedImages] = useState<string[]>([])
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
 
   const [isRecording, setIsRecording] = useState(false)
@@ -139,14 +140,19 @@ function App() {
           analyser.getByteFrequencyData(array)
 
           let maxVolume = 0
-          for (let i = 0; i < array.length; i++) {
-            if (array[i] > maxVolume) {
-              maxVolume = array[i]
+          
+          // Prevent feedback loops: if the computer is currently reading an AI response, 
+          // ignore the microphone input so it doesn't accidentally trigger itself!
+          if (!window.speechSynthesis.speaking) {
+            for (let i = 0; i < array.length; i++) {
+              if (array[i] > maxVolume) {
+                maxVolume = array[i]
+              }
             }
           }
 
           // VOLUME THRESHOLD: Volume ranges from 0 to 255.
-          const THRESHOLD = 10
+          const THRESHOLD = 30
 
           if (maxVolume > THRESHOLD) {
             // User is speaking
@@ -298,7 +304,7 @@ function App() {
       const formData = new FormData()
       formData.append('file', imageBlob, 'capture.png')
       formData.append('prompt', getAnalysisPrompt())
-      
+
       // Call backend
       const analyzeUrl = buildApiUrl('/analyze')
       console.log('Calling backend at', analyzeUrl)
@@ -326,7 +332,13 @@ function App() {
         setReturnedImages([])
       }
 
-      alert(`Analysis: ${result?.text || 'No response'}`)
+      const responseText = result?.text || 'No response'
+      setAnalysisResult(responseText)
+
+      // Stop any existing speech and read the new response aloud
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(responseText)
+      window.speechSynthesis.speak(utterance)
 
       setCapturedImages([])
     } catch (error) {
@@ -376,7 +388,7 @@ function App() {
         }
       }}
     >
-      
+
       <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
           <div style={{
@@ -403,6 +415,22 @@ function App() {
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
           <h2>Analysis Results</h2>
+
+          {analysisResult && (
+            <div style={{
+              padding: '15px',
+              backgroundColor: '#34495e',
+              color: 'white',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              textAlign: 'left',
+              lineHeight: '1.5'
+            }}>
+              <strong>Response:</strong><br />
+              {analysisResult}
+            </div>
+          )}
+
           {returnedImages.length === 0 ? (
             <div className="empty-state">
               <p>Analyzed images will appear here</p>
