@@ -20,6 +20,8 @@ interface RecorderFormat {
   extension: string
 }
 
+type DiagramSource = 'user' | 'schematic'
+
 const DEFAULT_ANALYZE_PROMPT = 'Analyze this image and describe what you see.'
 const PROGRAM_API_BASE_URL = ((import.meta.env.VITE_PROGRAM_API_URL as string | undefined)?.trim() || 'http://127.0.0.1:5000').replace(/\/+$/, '')
 
@@ -95,6 +97,7 @@ function App() {
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
   const [useTextInput, setUseTextInput] = useState(false)
   const [manualTextInput, setManualTextInput] = useState('')
+  const [diagramSource, setDiagramSource] = useState<DiagramSource>('user')
 
   useEffect(() => {
     const enableMediaCapture = async () => {
@@ -188,6 +191,16 @@ function App() {
       audioChunksRef.current = []
       setHasAudioRecording(false)
     }
+  }
+
+  const hasSchematicSources = SCHEMATIC_IMAGE_PATHS.length > 0
+
+  const toggleDiagramSource = () => {
+    if (!hasSchematicSources) {
+      return
+    }
+
+    setDiagramSource((previousSource) => previousSource === 'user' ? 'schematic' : 'user')
   }
 
   const buildRollingLoopContext = () => {
@@ -299,9 +312,12 @@ function App() {
         availableUserImageCount: pendingImageDataUrls.length,
         fallbackLimit: USER_IMAGE_FALLBACK_LIMIT,
         schematicCount: SCHEMATIC_IMAGE_PATHS.length,
+        diagramSource,
         inputMode: useTextInput ? 'text' : 'audio',
 
       })
+
+      formData.append('diagram_source', diagramSource)
 
       const hasAudioClip = audioChunksRef.current.length > 0 && recorderFormatRef.current
 
@@ -473,10 +489,23 @@ function App() {
                   >
                     {useTextInput ? '⌨ Text On' : '⌨ Use Text'}
                   </button>
+                  <button
+                    className={`diagram-source-button ${diagramSource === 'user' ? 'diagram-source-user' : 'diagram-source-schematic'}`}
+                    onClick={toggleDiagramSource}
+                    title={hasSchematicSources
+                      ? 'Switch edited-image source (user photo vs schematic)'
+                      : 'No schematic source configured. Set VITE_SCHEMATIC_IMAGE_PATHS to enable switching.'}
+                    disabled={!hasSchematicSources}
+                  >
+                    {diagramSource === 'user' ? '🖼 Edit: User' : '📐 Edit: Schematic'}
+                  </button>
                 </div>
               </>
             )}
           </div>
+          <p className="diagram-source-hint">
+            Edited image source: <strong>{diagramSource === 'user' ? 'User photo' : 'Schematic image'}</strong>
+          </p>
           {useTextInput && (
             <div className="text-input-panel">
               <label htmlFor="manual-input" className="text-input-label">Technician text input</label>

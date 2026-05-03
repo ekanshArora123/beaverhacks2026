@@ -232,6 +232,53 @@ h2 {
   color: #1f2933;
 }
 
+.diagram-source-button {
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.diagram-source-button.diagram-source-user {
+  background: #e8f4ff;
+  color: #145588;
+  border-color: #89bde4;
+}
+
+.diagram-source-button.diagram-source-user:hover:not(:disabled) {
+  background: #d7ecff;
+}
+
+.diagram-source-button.diagram-source-schematic {
+  background: #f5ecff;
+  color: #5e3f7a;
+  border-color: #cdb7e7;
+}
+
+.diagram-source-button.diagram-source-schematic:hover:not(:disabled) {
+  background: #efe0ff;
+}
+
+.diagram-source-button:disabled {
+  background: #eceff1;
+  color: #8d9aa5;
+  border-color: #cfd8dc;
+  cursor: not-allowed;
+}
+
+.diagram-source-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #5b6670;
+}
+
+.diagram-source-hint strong {
+  color: #2f3a43;
+}
+
 .text-input-panel {
   margin-top: 0.6rem;
   background: #fff7e6;
