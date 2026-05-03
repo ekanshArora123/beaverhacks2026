@@ -60,7 +60,7 @@ ANALYZE_MODEL = "gemini-2.0-flash"
 GENERATE_MODEL = "gemini-3-pro-image-preview"
 
 SUPPORTED_SUFFIXES = {
-    ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp3",
     ".mp4", ".mov", ".avi", ".mkv", ".webm",
 }
 SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -258,6 +258,7 @@ def wait_for_upload(client: genai.Client, uploaded_file: types.File) -> types.Fi
 @app.route("/health", methods=["GET"])
 def health():
     """Simple liveness check."""
+    print("--- [ENDPOINT HIT]: GET /health ---")
     return jsonify({"status": "ok"})
 
 
@@ -274,6 +275,7 @@ def analyze():
         { "text": "..." }       on success
         { "error": "..." }      on failure
     """
+    print("--- [ENDPOINT HIT]: POST /analyze ---")
     prompt = request.form.get("prompt") or "Describe this media."
     file = request.files.get("file")
 
@@ -325,6 +327,7 @@ def generate():
           "image_mime": "image/png"
         }
     """
+    print("--- [ENDPOINT HIT]: POST /generate ---")
     data = request.get_json(silent=True) or {}
     prompt = data.get("prompt", "").strip()
     if not prompt:
@@ -365,6 +368,7 @@ def voice_to_text():
         prompt     - optional transcription instruction
         model      - optional Gemini model override
     """
+    print("--- [ENDPOINT HIT]: POST /voice-to-text ---")
     payload = _get_json_payload()
     file = request.files.get("file")
     audio_path = _optional_str(_read_request_value(payload, "audio_path"))
@@ -424,6 +428,7 @@ def voice_to_text():
 
 @app.route("/prompts/1", methods=["POST"])
 def run_prompt_one():
+    print("--- [ENDPOINT HIT]: POST /prompts/1 ---")
     payload = _get_json_payload()
 
     try:
@@ -447,6 +452,7 @@ def run_prompt_one():
 
 @app.route("/prompts/2", methods=["POST"])
 def run_prompt_two():
+    print("--- [ENDPOINT HIT]: POST /prompts/2 ---")
     payload = _get_json_payload()
 
     try:
@@ -473,6 +479,7 @@ def run_prompt_two():
 
 @app.route("/prompts/3", methods=["POST"])
 def run_prompt_three():
+    print("--- [ENDPOINT HIT]: POST /prompts/3 ---")
     payload = _get_json_payload()
 
     try:
@@ -487,6 +494,7 @@ def run_prompt_three():
 
 @app.route("/prompts/4", methods=["POST"])
 def run_prompt_four():
+    print("--- [ENDPOINT HIT]: POST /prompts/4 ---")
     payload = _get_json_payload()
 
     try:
@@ -502,6 +510,7 @@ def run_prompt_four():
 
 @app.route("/prompts/run-all", methods=["POST"])
 def run_all_prompts():
+    print("--- [ENDPOINT HIT]: POST /prompts/run-all ---")
     payload = _get_json_payload()
 
     try:
@@ -524,7 +533,7 @@ def run_all_prompts():
         return _json_error_response(exc)
 
 
-def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
+def run_server(host: str = "127.0.0.1", port: int = 5000, debug: bool = False) -> None:
     """Start the backend HTTP server and wait for frontend API calls."""
     print(f"Backend API listening on http://{host}:{port}")
     print(
@@ -535,7 +544,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> 
 
 
 if __name__ == "__main__":
-    default_host = os.environ.get("BACKEND_HOST", "0.0.0.0")
+    default_host = os.environ.get("BACKEND_HOST", "127.0.0.1")
     default_port = int(os.environ.get("BACKEND_PORT", "5000"))
     default_debug = os.environ.get("BACKEND_DEBUG", "false").lower() in {"1", "true", "yes", "on"}
     run_server(host=default_host, port=default_port, debug=default_debug)
