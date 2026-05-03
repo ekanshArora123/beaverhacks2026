@@ -13,6 +13,7 @@ interface AnalyzeResponse {
   user_input_text?: string
   model?: string
   error?: string
+  first_prompt_response_text?: string
 }
 
 interface RecorderFormat {
@@ -422,7 +423,7 @@ function App() {
         setReturnedImages([])
       }
 
-      const responseText = result?.text || 'No response'
+      const responseText = result?.first_prompt_response_text || 'No response'
       setAnalysisResult(responseText)
 
       const transcribedUserInput = (result?.user_input_text || '').trim()
