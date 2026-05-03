@@ -1,0 +1,26 @@
+Existing context
+
+A: The goal for today (I need to use machine x for this) so label “Task”
+B: Schematic + understanding for machine.
+“This is an Ender 3, the different parts are… etc.
+C: Existing Knowledge of machine (including last session context)
+Previous maintenance logs
+Previous mechanical failures and fixes
+Previous Preventative maintenance
+“The nozzle clogs and we fixed that by unscrewing it and clearing it last time”
+1. D: User takes a photo of what they need to work on
+2. E: User asks AI some question for goal in part A
+Verbally, so device needs microphone and auditory processing agent linked
+3. F+G: AI agent(s) generate response
+Takes A,D, and E, and has access to the B and C
+B requires interpreting a schematic + good understanding of machine, image to text
+C should be text and needs to be fed in
+A should also be text and fed in
+A,B,C, are given as context , the AI understands where each part is coming from, need prompt script
+E is added to this context^^^
+AI then takes A,B,C,E, and uses that with D(photo) to convert to text and graphic context.
+- 4. H: A, B, C, E, and F and G are given with D to turn into a graphic (H)
+
+5. Then, F(output text) and H(diagramed image) are outputted to user
+6. C is updated if needed with existing/new context)
+7. D,E are updated and go back to step 2 to repeat. (user looked at F and H to make D,E) 
