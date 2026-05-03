@@ -11,6 +11,21 @@ from flask_cors import CORS
 from google import genai
 from google.genai import types
 
+try:
+    from .promptScripts.voiceToText import (
+        DEFAULT_TRANSCRIPTION_PROMPT,
+        SUPPORTED_AUDIO_SUFFIXES,
+        VOICE_TO_TEXT_MODEL,
+        transcribe_audio_file,
+    )
+except ImportError:
+    from promptScripts.voiceToText import (
+        DEFAULT_TRANSCRIPTION_PROMPT,
+        SUPPORTED_AUDIO_SUFFIXES,
+        VOICE_TO_TEXT_MODEL,
+        transcribe_audio_file,
+    )
+
 
 def _load_repo_key() -> str | None:
     keys_path = Path(__file__).resolve().parent.parent / "keys.py"
@@ -156,10 +171,65 @@ def generate():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/voice-to-text", methods=["POST"])
+def voice_to_text():
+    """
+    Transcribe uploaded audio into plain text for later use as prompt 2 user input.
+
+    Request (multipart/form-data):
+        file   - audio file, required
+        prompt - optional transcription instruction
+        model  - optional Gemini model override
+
+    Response (JSON):
+        {
+          "text": "...",
+          "user_input_text": "...",
+          "model": "..."
+        }
+    """
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"error": "audio file is required"}), 400
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in SUPPORTED_AUDIO_SUFFIXES:
+        return jsonify({"error": f"Unsupported audio type: {suffix}"}), 400
+
+    prompt = (request.form.get("prompt") or DEFAULT_TRANSCRIPTION_PROMPT).strip()
+    model = (request.form.get("model") or VOICE_TO_TEXT_MODEL).strip()
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = Path(tmp.name)
+
+        try:
+            transcript_text = transcribe_audio_file(
+                client=get_client(),
+                audio_path=tmp_path,
+                prompt=prompt,
+                model=model,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        return jsonify(
+            {
+                "text": transcript_text,
+                "user_input_text": transcript_text,
+                "model": model,
+            }
+        )
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
     """Start the backend HTTP server and wait for frontend API calls."""
     print(f"Backend API listening on http://{host}:{port}")
-    print("Routes: GET /health, POST /analyze, POST /generate")
+    print("Routes: GET /health, POST /analyze, POST /generate, POST /voice-to-text")
     app.run(host=host, port=port, debug=debug)
 
 
