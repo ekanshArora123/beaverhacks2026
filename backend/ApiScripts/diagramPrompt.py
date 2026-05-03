@@ -278,13 +278,18 @@ class DiagramPromptMixin:
 		diagram_path = self._write_generated_diagram(image_bytes, image_mime_type)
 		return response_text, diagram_path, image_mime_type
 
-	def _upload_images(self) -> list[types.File]:
-		uploaded_files: list[types.File] = []
-		client = self.get_client()
+	def _upload_images(self) -> list[types.Part]:
+		parts: list[types.Part] = []
 		for image_path in self.image_paths:
-			uploaded_file = client.files.upload(file=image_path)
-			uploaded_files.append(wait_for_upload(client, uploaded_file))
-		return uploaded_files
+			with open(image_path, "rb") as f:
+				image_bytes = f.read()
+			
+			mime_type, _ = mimetypes.guess_type(str(image_path))
+			if not mime_type:
+				mime_type = "image/png"
+				
+			parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+		return parts
 
 	def _build_prompt_payload(self) -> str:
 		sections = [f"Prompt:\n{self.prompt_text}"]
