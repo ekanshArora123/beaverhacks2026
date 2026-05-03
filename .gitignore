@@ -12,3 +12,4 @@ backend/__pycache__/*
 */__pycache__/**
 keys.env
 keys.py
+backend/tests/__pycache__/test_prompt_api.cpython-313.pyc

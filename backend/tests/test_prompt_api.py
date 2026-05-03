@@ -9,7 +9,9 @@ import importlib
 import inspect
 import json
 import os
+import struct
 import sys
+import zlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -26,13 +28,38 @@ from ApiScripts.updatePrompt import StateUpdateMixin
 from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 
-PNG_BYTES = (
-    b"\x89PNG\r\n\x1a\n"
-    b"\x00\x00\x00\rIHDR"
-    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-    b"\x00\x00\x00\x0cIDATx\x9cc`\x00\x00\x00\x02\x00\x01\xe5'\xd4\xa2"
-    b"\x00\x00\x00\x00IEND\xaeB`\x82"
-)
+def _build_png_bytes(width: int = 64, height: int = 64) -> bytes:
+    # Generate a simple opaque RGB gradient PNG using only stdlib modules.
+    def _chunk(chunk_type: bytes, payload: bytes) -> bytes:
+        crc = zlib.crc32(chunk_type + payload) & 0xFFFFFFFF
+        return struct.pack("!I", len(payload)) + chunk_type + payload + struct.pack("!I", crc)
+
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive integers")
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr_payload = struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)
+
+    rows: list[bytes] = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            red = int(255 * x / max(width - 1, 1))
+            green = int(255 * y / max(height - 1, 1))
+            blue = 96
+            row.extend((red, green, blue))
+        rows.append(b"\x00" + bytes(row))
+
+    idat_payload = zlib.compress(b"".join(rows), level=9)
+    return (
+        signature
+        + _chunk(b"IHDR", ihdr_payload)
+        + _chunk(b"IDAT", idat_payload)
+        + _chunk(b"IEND", b"")
+    )
+
+
+PNG_BYTES = _build_png_bytes()
 
 
 class SkipTest(Exception):
