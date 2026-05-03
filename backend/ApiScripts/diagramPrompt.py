@@ -13,9 +13,9 @@ from google import genai
 from google.genai import types
 
 try:
-	from .docTools import get_doc_tools
+	from .docTools import get_cached_content_name_for_text, get_doc_tools
 except ImportError:
-	from docTools import get_doc_tools
+	from docTools import get_cached_content_name_for_text, get_doc_tools
 
 SUPPORTED_IMAGE_SUFFIXES = {
 	".jpg",
@@ -27,14 +27,14 @@ SUPPORTED_IMAGE_SUFFIXES = {
 ResponseMode = Literal["text", "voice"]
 DEFAULT_PROMPTS = {
 	1: (
-		"You are an expert field technician assistant. Use the provided context, task status, and images "
-		"to produce one clear text instruction for what the technician should do next. Focus on safe, "
-		"actionable guidance."
+		"You are an field technician assistant. Use the provided context, task , and images "
+		"to produce one clear text instruction for what the technician should do next. "
+		"Focus on actionable guidance for their question and task"
 	),
 	2: (
-		"Create a technician-facing annotated image that shows the exact next action. Use strong directional "
-		"arrows, short labels, and diagram-style overlays so the operator can immediately see what to inspect, "
-		"press, loosen, tighten, or replace."
+		"Create a technician-facing annotated image that shows the next action if rlevent."
+		"Use directional, arrows, short labels, and diagram-style overlays so the operator "
+		"can immediately see what to do (inspect, press, loosen, tighten, replace, etc)"
 	),
 }
 GENERATED_DIAGRAMS_DIR = Path(__file__).resolve().parent.parent / "generated_diagrams"
@@ -257,11 +257,17 @@ class DiagramPromptMixin:
 	def _generate_text_response(self) -> str:
 		uploaded_files = self._upload_images()
 		self.selected_model = self.vision_model if uploaded_files else self.text_model
+		cached_content_name = get_cached_content_name_for_text(
+			self.task_name or "",
+			self.text_source_1,
+			self.text_source_2,
+		)
 		response = self.get_client().models.generate_content(
 			model=self.selected_model,
 			contents=[self._build_prompt_payload(), *uploaded_files],
 			config=types.GenerateContentConfig(
 				tools=get_doc_tools(),
+				cached_content=cached_content_name,
 			),
 		)
 		response_text = response.text or self._collect_text_from_parts(response)

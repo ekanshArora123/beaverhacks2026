@@ -555,7 +555,7 @@ function App() {
   return (
     <div className="app">
 
-      <div className="main-content">
+      <div className={`main-content ${usePhoneInput ? 'phone-mode-layout' : ''}`}>
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
           <h2>Analysis Results</h2>
@@ -608,6 +608,7 @@ function App() {
               code={sessionCode}
               errorMessage={pairingError}
               lastPayloadAt={lastPayloadAt}
+              compact={true}
             />
           ) : (
             <>

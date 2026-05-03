@@ -1,6 +1,6 @@
 """Update prompt helper.
 
-Update prompt takes all previous inputs and persists the current
+Update prompt takes all previous inputs and persists the
 task state as plain text. Intended to be run after diagram prompt 
 """
 

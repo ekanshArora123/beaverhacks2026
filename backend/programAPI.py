@@ -48,6 +48,11 @@ except ImportError:
     from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
 
 try:
+    from .ApiScripts.docTools import prime_machine_doc_caches
+except ImportError:
+    from ApiScripts.docTools import prime_machine_doc_caches
+
+try:
     from . import sessionStore
 except ImportError:
     import sessionStore
@@ -801,4 +806,10 @@ def session_pending(code: str):
 
 
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
+    try:
+        backend = create_sequence_backend()
+        cache_summary = prime_machine_doc_caches(backend.get_client(), backend.text_model or TEXT_MODEL)
+        print(f"[startup] machine-doc cache summary: {cache_summary}")
+    except Exception as exc:
+        print(f"[startup] machine-doc cache init failed: {exc}")
     app.run(host=host, port=port, debug=debug, threaded=True)

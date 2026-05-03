@@ -2,3 +2,4 @@ flask
 flask-cors
 google-genai
 PyMuPDF
+pymupdf4llm
