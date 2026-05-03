@@ -1,11 +1,10 @@
 """Smoke-test one callable function for each backend prompt stage.
 
-Default mode is real Gemini calls. Use --fake to run local stub mode.
+Always runs real Gemini calls across all prompt stages.
 """
 
 from __future__ import annotations
 
-import argparse
 import importlib
 import inspect
 import json
@@ -143,6 +142,11 @@ def _assert_non_empty_response(result: dict[str, str | int | list[str] | None], 
     return response_text
 
 
+def _print_stage_output(label: str, details: dict[str, str]) -> None:
+    print(f"[OUTPUT] {label}")
+    print(json.dumps(details, indent=2, sort_keys=True))
+
+
 class PromptHarness(MainPromptMixin, DiagramPromptMixin, StateUpdateMixin, TTSMixin):
     def __init__(self, task_states_dir: Path, output_dir: Path, *, use_real_client: bool = False):
         self.text_model = TEXT_MODEL if use_real_client else "fake-text-model"
@@ -194,7 +198,7 @@ def _call_with_supported_kwargs(func, **kwargs):
     return func(**supported_kwargs)
 
 
-def test_prompt_1_run_first_prompt(args: argparse.Namespace) -> dict[str, str]:
+def test_prompt_1_run_first_prompt(settings: SimpleNamespace) -> dict[str, str]:
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         image_path = root / "diagram.png"
@@ -204,9 +208,9 @@ def test_prompt_1_run_first_prompt(args: argparse.Namespace) -> dict[str, str]:
         harness = PromptHarness(
             task_states_dir=root,
             output_dir=root / "generated_audio",
-            use_real_client=args.real,
+            use_real_client=settings.real,
         )
-        image_paths = [] if args.real else [image_path]
+        image_paths = [] if settings.real else [image_path]
         result = harness.run_first_prompt(
             image_paths=image_paths,
             text_source_1="source one",
@@ -215,7 +219,7 @@ def test_prompt_1_run_first_prompt(args: argparse.Namespace) -> dict[str, str]:
         )
 
         assert result["task_status"] == "X part broken"
-        if args.real:
+        if settings.real:
             response_text = _assert_non_empty_response(result, real_mode=True)
             selected_model = str(result.get("selected_model") or "")
         else:
@@ -230,7 +234,7 @@ def test_prompt_1_run_first_prompt(args: argparse.Namespace) -> dict[str, str]:
         }
 
 
-def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
+def test_prompt_2_run_second_prompt(settings: SimpleNamespace) -> dict[str, str]:
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         image_path = root / "diagram.png"
@@ -240,9 +244,9 @@ def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
         harness = PromptHarness(
             task_states_dir=root,
             output_dir=root / "generated_audio",
-            use_real_client=args.real,
+            use_real_client=settings.real,
         )
-        image_paths = [] if args.real else [image_path]
+        image_paths = [] if settings.real else [image_path]
         result = _call_with_supported_kwargs(
             harness.run_second_prompt,
             first_prompt_response="diagram labels and arrows",
@@ -256,7 +260,10 @@ def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
         if not isinstance(result, dict):
             raise AssertionError("run_second_prompt must return a dict.")
 
-        _assert_non_empty_response(result, real_mode=args.real)
+        response_text = _assert_non_empty_response(result, real_mode=settings.real)
+        selected_model = str(result.get("selected_model") or "")
+        if settings.real and selected_model.startswith("fake-"):
+            raise AssertionError("Expected a real Gemini model for prompt 2, but fake model was returned.")
 
         diagram_path_value = result.get("diagram_image_path")
         if not diagram_path_value:
@@ -271,27 +278,29 @@ def test_prompt_2_run_second_prompt(args: argparse.Namespace) -> dict[str, str]:
             raise AssertionError(f"Unexpected diagram MIME type: {diagram_mime_type}")
 
         return {
+            "selected_model": selected_model,
+            "response_text": response_text,
             "diagram_image_path": str(diagram_path),
             "diagram_mime_type": diagram_mime_type,
         }
 
 
-def test_prompt_3_run_third_prompt(args: argparse.Namespace) -> dict[str, str]:
-    if args.real and not args.include_voice:
-        raise SkipTest("Prompt 3 voice test is skipped in --real mode. Use --include-voice to enable it.")
+def test_prompt_3_run_third_prompt(settings: SimpleNamespace) -> dict[str, str]:
+    if settings.real and not settings.include_voice:
+        raise SkipTest("Prompt 3 voice test is skipped in --real mode (--no-voice).")
 
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         harness = PromptHarness(
             task_states_dir=root / "taskStates",
             output_dir=root / "generated_audio",
-            use_real_client=args.real,
+            use_real_client=settings.real,
         )
         result = harness.run_third_prompt("Tighten the loose bracket.")
         audio_path = Path(str(result["audio_path"]))
 
         assert audio_path.exists()
-        if args.real:
+        if settings.real:
             if audio_path.stat().st_size == 0:
                 raise AssertionError("Voice output file is empty.")
             audio_mime_type = str(result.get("audio_mime_type") or "")
@@ -307,13 +316,13 @@ def test_prompt_3_run_third_prompt(args: argparse.Namespace) -> dict[str, str]:
         }
 
 
-def test_prompt_4_run_fourth_prompt(args: argparse.Namespace) -> dict[str, str]:
+def test_prompt_4_run_fourth_prompt(settings: SimpleNamespace) -> dict[str, str]:
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         harness = PromptHarness(
             task_states_dir=root / "taskStates",
             output_dir=root / "generated_audio",
-            use_real_client=args.real,
+            use_real_client=settings.real,
         )
         result = harness.run_fourth_prompt("task4", "Replace the bent pin")
         status_path = root / "taskStates" / "task4" / "text1.txt"
@@ -336,48 +345,28 @@ TESTS = {
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run one smoke test per prompt stage.")
-    parser.add_argument(
-        "--prompt",
-        choices=["all", *TESTS.keys()],
-        default="all",
-        help="Run a single prompt test or the full set.",
-    )
-    mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument(
-        "--real",
-        dest="real",
-        action="store_true",
-        help="Run tests with real Gemini API calls (default).",
-    )
-    mode_group.add_argument(
-        "--fake",
-        dest="real",
-        action="store_false",
-        help="Run tests with the local fake client (no external Gemini calls).",
-    )
-    parser.add_argument(
-        "--include-voice",
-        action="store_true",
-        help="When used with --real, also run prompt 3 voice synthesis.",
-    )
-    parser.set_defaults(real=True)
-    args = parser.parse_args()
+    if len(sys.argv) > 1:
+        print("[INFO] CLI flags are removed; running all prompts in real mode.")
 
-    if args.real:
-        try:
-            _load_api_key()
-        except Exception as exc:
-            print(f"[FAIL] real-mode setup: {type(exc).__name__}: {exc}")
-            return 1
+    settings = SimpleNamespace(real=True, include_voice=True)
 
-    selected_prompts = TESTS.keys() if args.prompt == "all" else [args.prompt]
+    try:
+        _load_api_key()
+    except Exception as exc:
+        print(f"[FAIL] real-mode setup: {type(exc).__name__}: {exc}")
+        return 1
+
+    selected_prompts = list(TESTS.keys())
+    print("[MODE] REAL GEMINI")
+    print(f"[RUN] prompt selection: {', '.join(selected_prompts)}")
+    print("[RUN] include prompt 3 voice: yes")
+
     failures = 0
 
     for prompt_key in selected_prompts:
         label, test_func = TESTS[prompt_key]
         try:
-            details = test_func(args)
+            details = test_func(settings)
         except SkipTest as exc:
             print(f"[SKIP] {label}: {exc}")
             continue
@@ -386,6 +375,7 @@ def main() -> int:
             print(f"[FAIL] {label}: {type(exc).__name__}: {exc}")
             continue
 
+        _print_stage_output(label, details)
         print(f"[PASS] {label}: {json.dumps(details, sort_keys=True)}")
 
     return 1 if failures else 0

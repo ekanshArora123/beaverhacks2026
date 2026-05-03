@@ -74,6 +74,13 @@ function App() {
 
   const [isRecording, setIsRecording] = useState(false)
   const [transcription, setTranscription] = useState<string>("")
+  const [shouldSubmit, setShouldSubmit] = useState(false)
+  const [isListeningModeEnabled, setIsListeningModeEnabled] = useState(false)
+  
+  const listeningModeRef = useRef(isListeningModeEnabled)
+  useEffect(() => {
+    listeningModeRef.current = isListeningModeEnabled
+  }, [isListeningModeEnabled])
 
   useEffect(() => {
     // Request webcam and microphone access
@@ -94,7 +101,12 @@ function App() {
 
         const recorderFormat = resolveRecorderFormat()
         recorderFormatRef.current = recorderFormat
-        const mediaRecorder = new MediaRecorder(stream, {
+        
+        // Extract only the audio tracks from the stream to avoid NotSupportedError
+        // when using an audio-only MIME type with a stream that contains video.
+        const audioStream = new MediaStream(stream.getAudioTracks())
+        
+        const mediaRecorder = new MediaRecorder(audioStream, {
           mimeType: recorderFormat.mimeType,
         })
         mediaRecorderRef.current = mediaRecorder
@@ -106,10 +118,16 @@ function App() {
         }
 
         mediaRecorder.onstop = () => {
+          if (!listeningModeRef.current) {
+            audioChunksRef.current = [] // discard audio
+            setTranscription("Listening mode paused.")
+            return
+          }
           // Audio chunks are accumulated across sessions
           // They will be sent together with images when user clicks Send
           const count = audioChunksRef.current.length
-          setTranscription(`Audio recorded (${count} chunk${count !== 1 ? 's' : ''})`)
+          setTranscription(`Processing voice...`)
+          setShouldSubmit(true)
         }
 
         // --- Automated Voice Activity Detection (VAD) ---
@@ -132,9 +150,23 @@ function App() {
 
           let maxVolume = 0
           
-          // Prevent feedback loops: if the computer is currently reading an AI response, 
-          // ignore the microphone input so it doesn't accidentally trigger itself!
-          if (!window.speechSynthesis.speaking) {
+          // Prevent feedback loops OR user turning off listening mode
+          if (!listeningModeRef.current || window.speechSynthesis.speaking) {
+            maxVolume = 0
+            
+            // If they toggled it off mid-sentence, cancel the recording immediately!
+            if (!listeningModeRef.current && isSpeaking) {
+              isSpeaking = false
+              if (silenceTimer) {
+                clearTimeout(silenceTimer)
+                silenceTimer = null
+              }
+              if (mediaRecorder.state === "recording") {
+                mediaRecorder.stop()
+                setIsRecording(false)
+              }
+            }
+          } else {
             for (let i = 0; i < array.length; i++) {
               if (array[i] > maxVolume) {
                 maxVolume = array[i]
@@ -178,11 +210,9 @@ function App() {
             }
           }
 
-          // Debug log - open DevTools (F12) to see this!
-          // If this says 0 continuously, your browser is using the wrong microphone 
-          // or the audio engine is still suspended.
-          if (maxVolume > 0 || localAudioContext.state === 'suspended') {
-            console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state)
+          // Debug log - print every 60 frames (~1 second) to diagnose
+          if (animationFrameId % 60 === 0) {
+            console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state, '| TTS Speaking:', window.speechSynthesis.speaking)
           }
 
           // Loop forever
@@ -210,13 +240,22 @@ function App() {
       }
     }
 
+    let isCancelled = false
     let cleanupInternal: (() => void) | undefined
+    
     void enableMediaCapture().then((cleanupFn) => {
-      cleanupInternal = cleanupFn
+      if (isCancelled && cleanupFn) {
+        // Component unmounted before we finished setting up! Clean up immediately.
+        cleanupFn()
+      } else {
+        cleanupInternal = cleanupFn
+      }
     })
 
     // Cleanup: stop video and audio streams when component unmounts
     return () => {
+      isCancelled = true
+      
       if (cleanupInternal) {
         cleanupInternal()
       }
@@ -231,6 +270,40 @@ function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (shouldSubmit) {
+      setShouldSubmit(false)
+
+      const runAutoSubmit = async () => {
+        let dataUrl = ''
+        
+        // Auto-capture a fresh image right now!
+        if (videoRef.current && canvasRef.current) {
+          const video = videoRef.current
+          const canvas = canvasRef.current
+          const context = canvas.getContext('2d')
+
+          if (context) {
+            canvas.width = video.videoWidth
+            canvas.height = video.videoHeight
+            context.drawImage(video, 0, 0, canvas.width, canvas.height)
+            dataUrl = canvas.toDataURL('image/png')
+            
+            // Show the user what we just automatically captured
+            setCapturedImages([{ id: Date.now().toString(), dataUrl }])
+          }
+        }
+
+        if (dataUrl) {
+          console.log('📸 Auto-captured photo from webcam! Submitting to backend now...')
+          await sendToBackend(dataUrl)
+        }
+      }
+
+      void runAutoSubmit()
+    }
+  }, [shouldSubmit])
 
   const getAnalysisPrompt = () => {
     const normalizedTranscription = transcription.trim()
@@ -272,8 +345,10 @@ function App() {
     setCapturedImages(prev => prev.filter(img => img.id !== id))
   }
 
-  const sendToBackend = async () => {
-    if (capturedImages.length === 0) {
+  const sendToBackend = async (autoDataUrl?: string) => {
+    const urlToUse = autoDataUrl || (capturedImages.length > 0 ? capturedImages[0].dataUrl : null)
+
+    if (!urlToUse) {
       alert('Please capture at least one image first')
       return
     }
@@ -282,7 +357,7 @@ function App() {
 
     try {
       // Convert first image dataUrl to blob
-      const response = await fetch(capturedImages[0].dataUrl)
+      const response = await fetch(urlToUse)
       const imageBlob = await response.blob()
 
       console.log('Sending image:', {
@@ -370,17 +445,32 @@ function App() {
     >
 
       <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+        
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
+            <input 
+              type="checkbox" 
+              checked={isListeningModeEnabled} 
+              onChange={(e) => setIsListeningModeEnabled(e.target.checked)}
+              style={{ width: '20px', height: '20px', marginRight: '10px', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '1.2em', fontWeight: 'bold' }}>Hands-Free Assistant Mode</span>
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px', opacity: isListeningModeEnabled ? 1 : 0.5 }}>
           <div style={{
             width: '15px',
             height: '15px',
             borderRadius: '50%',
-            backgroundColor: isRecording ? '#e74c3c' : '#2ecc71',
+            backgroundColor: !isListeningModeEnabled ? '#95a5a6' : (isRecording ? '#e74c3c' : '#2ecc71'),
             marginRight: '10px',
             animation: isRecording ? 'pulse 1s infinite' : 'none'
           }} />
-          <strong style={{ fontSize: '1.2em' }}>
-            {isRecording ? "🎤 Listening to your question..." : "🟢 Microphone Active (Waiting for voice...)"}
+          <strong style={{ fontSize: '1.1em' }}>
+            {!isListeningModeEnabled 
+              ? "⏸️ Microphone Paused (Toggle mode on to speak)" 
+              : (isRecording ? "🎤 Listening to your question..." : "🟢 Microphone Active (Waiting for voice...)")}
           </strong>
         </div>
 
