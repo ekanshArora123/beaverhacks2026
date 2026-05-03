@@ -9,8 +9,8 @@ function trustedHttpsWorkaroundLines(): string[] {
     'Many Android Chromes silently block camera/mic on LAN URLs that use a dev/self-signed certificate (Vite HTTPS), even after you tap Continue.',
     '',
     'Use a tunnel with a real certificate, then open that https URL:',
-    '  • ngrok:   npx ngrok http 5173',
-    '  • cloudflared:   cloudflared tunnel --url http://localhost:5173',
+    '  • ngrok:   ngrok http 127.0.0.1:5173',
+    '  • cloudflared:   cloudflared tunnel --url http://127.0.0.1:5173',
     'Then use the printed https link + path /mobile?code=YOURCODE',
   ]
 }
