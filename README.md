@@ -42,6 +42,17 @@ $env:GEMINI_API_KEY="your-api-key-here"
 export GEMINI_API_KEY="your-api-key-here"
 ```
 
+Or create a `keys.env` file in the repo root and put either format on the first non-empty line:
+```dotenv
+GEMINI_API_KEY=your-api-key-here
+```
+or
+```dotenv
+your-api-key-here
+```
+
+When you run [start-dev.ps1](start-dev.ps1), it will automatically load `GEMINI_API_KEY` from `keys.env` if the environment variable is not already set.
+
 Or create `AIBackend/keys.py`:
 ```python
 GEMINI_KEY = "your-api-key-here"
@@ -56,6 +67,12 @@ From the repo root on Windows PowerShell, you can launch both services with one 
 ```
 
 This opens one PowerShell window for the backend and one for the frontend.
+
+If you want both services in your current terminal instead:
+
+```powershell
+.\start-dev.ps1 -SingleTerminal
+```
 
 **Terminal 1 - Start Flask Backend:**
 ```bash
