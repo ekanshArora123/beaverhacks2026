@@ -1,14 +1,17 @@
 # Backend Plan
 
 ## Goal
-
 Build the backend prompt flow so the task pipeline is clear and each prompt script has one job.
 
 ## Main files:
-- `backend/AIBackend.py`: orchestrates prompts 1 -> 2 -> 3 -> 4
+- `backend/programAPI.py`: API entrypoint that handles request parsing and voice transcription before prompt execution
+- `backend/AIBackend.py`: orchestrates the four prompt methods (`run_first_prompt` -> `run_second_prompt` -> `run_third_prompt` -> `run_fourth_prompt`)
 - `backend/ApiScripts/`: folder of all prompt scripts
+- `backend/ApiScripts/GeminiEndpoint/config.py`: models config
 
 ## Prompt Flow
+
+Note: The pipeline has 5 stages total. Stage 1 is voice transcription. Stages 2-5 are the four prompt methods in `AIBackend.py`.
 
 1. `voiceToText.py`
 	Convert the user's speech to text.

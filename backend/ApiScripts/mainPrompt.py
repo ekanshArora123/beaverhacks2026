@@ -48,41 +48,6 @@ class MainPromptMixin:
             voice_model=voice_model,
         )
 
-
-class SecondPromptMixin(MainPromptMixin):
-    """Backward-compatible alias for older imports."""
-
-    def run_second_prompt(
-        self,
-        first_prompt_response: str,
-        task_name: str | int | None = None,
-        text_source_1: str = "",
-        text_source_2: str = "",
-        image_paths: Sequence[str | Path] | None = None,
-        mode: str = "text",
-        prompt_text: str | None = None,
-        text_model: str | None = None,
-        vision_model: str | None = None,
-        voice_model: str | None = None,
-    ) -> dict[str, str | int | list[str] | None]:
-        merged_context = "\n\n".join(
-            section
-            for section in [first_prompt_response.strip(), text_source_1.strip()]
-            if section
-        )
-        return self.run_first_prompt(
-            image_paths=image_paths or [],
-            text_source_1=merged_context,
-            text_source_2=text_source_2,
-            task_name=task_name,
-            mode=mode,
-            prompt_text=prompt_text,
-            text_model=text_model,
-            vision_model=vision_model,
-            voice_model=voice_model,
-        )
-
-
 # ── Stand-in path constants (update to match your environment) ────────────────
 SCHEMATIC_IMAGE_DIR = r"C:\path\to\schematic\images"
 USER_IMAGE_DIR = r"C:\path\to\user\images"
@@ -196,11 +161,12 @@ def build_prompt(
 You are an expert field-service technician assistant providing real-time support. \
 A technician is currently working on a piece of machinery and has contacted you for help. \
 Your response will be converted to speech and played directly to the technician through their earpiece, \
-so you must speak naturally and conversationally, as if you are a knowledgeable colleague standing right beside them on the job.
+so you must speak naturally and conversationally, as if you are a knowledgeable colleague standing right beside them on the job. \
+The text will also be used by another model to to label a diagram of the machine.
 
 === MACHINE INFORMATION ===
 The following is the known information about the machine the technician is working on. \
-This provided information takes absolute precedence over any prior knowledge you have about this machine or similar machines. \
+This provided information takes precedence over any prior knowledge you have about this machine or similar machines. \
 Use your general knowledge of this machine to supplement details, but never contradict what is explicitly stated here.
 
 {machine_section}
