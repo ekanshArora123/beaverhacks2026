@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "copilot-frontend-dev",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev",
+				"--",
+				"--host",
+				"127.0.0.1"
+			],
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "copilot-frontend-api",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"server"
+			],
+			"isBackground": true,
+			"group": "build"
+		}
+	]
+}
