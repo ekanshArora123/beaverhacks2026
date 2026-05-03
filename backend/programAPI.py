@@ -32,6 +32,11 @@ except ImportError:
         transcribe_audio_file,
     )
 
+try:
+    from .ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+except ImportError:
+    from ApiScripts.GeminiEndpoint.config import DEFAULT_VOICE_NAME, TEXT_MODEL, VISION_MODEL, VOICE_MODEL
+
 
 def _load_repo_key() -> str | None:
     keys_path = Path(__file__).resolve().parent.parent / "keys.py"
@@ -56,8 +61,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = Path(__file__).resolve().parent
 FRONTEND_PUBLIC_DIR = REPO_ROOT / "frontend" / "public"
 
-ANALYZE_MODEL = "gemini-2.0-flash"
-GENERATE_MODEL = "gemini-3-pro-image-preview"
+ANALYZE_TEXT_MODEL = TEXT_MODEL
+ANALYZE_MEDIA_MODEL = VISION_MODEL
+GENERATE_MODEL = VISION_MODEL
 
 SUPPORTED_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp3",
@@ -139,6 +145,42 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _read_prompt_model_overrides(payload: dict[str, object]) -> dict[str, str | None]:
+    # Allow a single "model" value to act as a shared text/vision override.
+    shared_model = _optional_str(_read_request_value(payload, "model"))
+    text_model = _optional_str(_read_request_value(payload, "text_model")) or shared_model
+    vision_model = _optional_str(_read_request_value(payload, "vision_model")) or shared_model
+    voice_model = _optional_str(_read_request_value(payload, "voice_model"))
+    voice_name = _optional_str(_read_request_value(payload, "voice_name"))
+    return {
+        "text_model": text_model,
+        "vision_model": vision_model,
+        "voice_model": voice_model,
+        "voice_name": voice_name,
+    }
+
+
+def _apply_prompt_backend_overrides(
+    backend: GeminiSequenceBackend,
+    model_overrides: dict[str, str | None],
+) -> None:
+    text_model = model_overrides.get("text_model")
+    if text_model:
+        backend.text_model = text_model
+
+    vision_model = model_overrides.get("vision_model")
+    if vision_model:
+        backend.vision_model = vision_model
+
+    voice_model = model_overrides.get("voice_model")
+    if voice_model:
+        backend.voice_model = voice_model
+
+    voice_name = model_overrides.get("voice_name")
+    if voice_name:
+        backend.voice_name = voice_name
 
 
 def _resolve_workspace_file(raw_path: str, *, allowed_suffixes: set[str] | None = None) -> Path:
@@ -276,16 +318,21 @@ def analyze():
         { "error": "..." }      on failure
     """
     print("--- [ENDPOINT HIT]: POST /analyze ---")
-    prompt = request.form.get("prompt") or "Describe this media."
+    payload = _get_json_payload()
+    prompt = _optional_str(_read_request_value(payload, "prompt")) or "Describe this media."
+    requested_model = _optional_str(_read_request_value(payload, "model"))
     file = request.files.get("file")
 
     try:
         client = get_client()
+        selected_model = requested_model or ANALYZE_TEXT_MODEL
 
         if file and file.filename:
             suffix = Path(file.filename).suffix.lower()
             if suffix not in SUPPORTED_SUFFIXES:
                 return jsonify({"error": f"Unsupported file type: {suffix}"}), 400
+
+            selected_model = requested_model or ANALYZE_MEDIA_MODEL
 
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 file.save(tmp.name)
@@ -295,18 +342,18 @@ def analyze():
                 uploaded = client.files.upload(file=tmp_path)
                 ready = wait_for_upload(client, uploaded)
                 response = client.models.generate_content(
-                    model=ANALYZE_MODEL,
+                    model=selected_model,
                     contents=[ready, prompt],
                 )
             finally:
                 tmp_path.unlink(missing_ok=True)
         else:
             response = client.models.generate_content(
-                model=ANALYZE_MODEL,
+                model=selected_model,
                 contents=[prompt],
             )
 
-        return jsonify({"text": response.text or ""})
+        return jsonify({"text": response.text or "", "model": selected_model})
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -328,15 +375,17 @@ def generate():
         }
     """
     print("--- [ENDPOINT HIT]: POST /generate ---")
-    data = request.get_json(silent=True) or {}
-    prompt = data.get("prompt", "").strip()
+    payload = _get_json_payload()
+    prompt = _optional_str(_read_request_value(payload, "prompt")) or ""
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
+
+    selected_model = _optional_str(_read_request_value(payload, "model")) or GENERATE_MODEL
 
     try:
         client = get_client()
         response = client.models.generate_content(
-            model=GENERATE_MODEL,
+            model=selected_model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["IMAGE", "TEXT"],
@@ -350,6 +399,8 @@ def generate():
             elif part.inline_data and part.inline_data.data:
                 result["image"] = base64.b64encode(part.inline_data.data).decode()
                 result["image_mime"] = part.inline_data.mime_type
+
+        result["model"] = selected_model
 
         return jsonify(result)
 
@@ -432,8 +483,10 @@ def run_prompt_one():
     payload = _get_json_payload()
 
     try:
+        model_overrides = _read_prompt_model_overrides(payload)
         with tempfile.TemporaryDirectory() as temp_dir:
             backend = create_sequence_backend()
+            _apply_prompt_backend_overrides(backend, model_overrides)
             result = backend.run_first_prompt(
                 image_paths=_collect_image_paths(payload, Path(temp_dir)),
                 text_source_1=_optional_str(_read_request_value(payload, "text_source_1")) or "",
@@ -441,9 +494,9 @@ def run_prompt_one():
                 task_name=_read_request_value(payload, "task_name"),
                 mode=_optional_str(_read_request_value(payload, "mode")) or "text",
                 prompt_text=_optional_str(_read_request_value(payload, "prompt_text")),
-                text_model=_optional_str(_read_request_value(payload, "text_model")),
-                vision_model=_optional_str(_read_request_value(payload, "vision_model")),
-                voice_model=_optional_str(_read_request_value(payload, "voice_model")),
+                text_model=model_overrides["text_model"],
+                vision_model=model_overrides["vision_model"],
+                voice_model=model_overrides["voice_model"],
             )
         return jsonify(_attach_audio_payload(result))
     except Exception as exc:
@@ -456,8 +509,10 @@ def run_prompt_two():
     payload = _get_json_payload()
 
     try:
+        model_overrides = _read_prompt_model_overrides(payload)
         with tempfile.TemporaryDirectory() as temp_dir:
             backend = create_sequence_backend()
+            _apply_prompt_backend_overrides(backend, model_overrides)
             result = backend.run_second_prompt(
                 first_prompt_response=_required_str(
                     _read_request_value(payload, "first_prompt_response"), "first_prompt_response"
@@ -468,9 +523,9 @@ def run_prompt_two():
                 image_paths=_collect_image_paths(payload, Path(temp_dir)),
                 mode=_optional_str(_read_request_value(payload, "mode")) or "text",
                 prompt_text=_optional_str(_read_request_value(payload, "prompt_text")),
-                text_model=_optional_str(_read_request_value(payload, "text_model")),
-                vision_model=_optional_str(_read_request_value(payload, "vision_model")),
-                voice_model=_optional_str(_read_request_value(payload, "voice_model")),
+                text_model=model_overrides["text_model"],
+                vision_model=model_overrides["vision_model"],
+                voice_model=model_overrides["voice_model"],
             )
         return jsonify(_attach_audio_payload(result))
     except Exception as exc:
@@ -484,6 +539,15 @@ def run_prompt_three():
 
     try:
         backend = create_sequence_backend()
+        model_overrides = _read_prompt_model_overrides(payload)
+        # Prompt 3 only synthesizes audio, so we apply voice-level overrides directly.
+        _apply_prompt_backend_overrides(backend, model_overrides)
+        if not model_overrides.get("voice_model") and _optional_str(_read_request_value(payload, "model")):
+            backend.voice_model = _required_str(_read_request_value(payload, "model"), "model")
+        if not model_overrides.get("voice_name"):
+            backend.voice_name = DEFAULT_VOICE_NAME
+        if not backend.voice_model:
+            backend.voice_model = VOICE_MODEL
         result = backend.run_third_prompt(
             _required_str(_read_request_value(payload, "instruction_text"), "instruction_text")
         )
@@ -515,8 +579,10 @@ def run_all_prompts():
 
     try:
         task_name = _required_str(_read_request_value(payload, "task_name"), "task_name")
+        model_overrides = _read_prompt_model_overrides(payload)
         with tempfile.TemporaryDirectory() as temp_dir:
             backend = create_sequence_backend()
+            _apply_prompt_backend_overrides(backend, model_overrides)
             result = backend.run_four_prompts(
                 image_paths=_collect_image_paths(payload, Path(temp_dir)),
                 task_name=task_name,
@@ -524,9 +590,9 @@ def run_all_prompts():
                 text_source_2=_optional_str(_read_request_value(payload, "text_source_2")) or "",
                 updated_status=_optional_str(_read_request_value(payload, "updated_status")),
                 voice_output=_coerce_bool(_read_request_value(payload, "voice_output"), default=True),
-                text_model=_optional_str(_read_request_value(payload, "text_model")),
-                vision_model=_optional_str(_read_request_value(payload, "vision_model")),
-                voice_model=_optional_str(_read_request_value(payload, "voice_model")),
+                text_model=model_overrides["text_model"],
+                vision_model=model_overrides["vision_model"],
+                voice_model=model_overrides["voice_model"],
             )
         return jsonify(_attach_audio_payload(result))
     except Exception as exc:

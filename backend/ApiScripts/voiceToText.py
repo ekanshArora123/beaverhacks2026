@@ -14,6 +14,7 @@ SUPPORTED_AUDIO_SUFFIXES = {
 	".aiff",
 	".aac",
 	".ogg",
+	".webm",
 	".flac",
 	".m4a",
 }
@@ -37,7 +38,7 @@ def validate_audio_path(audio_path: str | Path) -> Path:
 
 	if resolved_path.suffix.lower() not in SUPPORTED_AUDIO_SUFFIXES:
 		raise ValueError(
-			f"Unsupported audio type for {resolved_path.name}. Use wav, mp3, aiff, aac, ogg, flac, or m4a."
+			f"Unsupported audio type for {resolved_path.name}. Use wav, mp3, aiff, aac, ogg, webm, flac, or m4a."
 		)
 
 	return resolved_path
