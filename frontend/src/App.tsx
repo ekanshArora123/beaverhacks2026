@@ -558,8 +558,6 @@ function App() {
       <div className={`main-content ${usePhoneInput ? 'phone-mode-layout' : ''}`}>
         {/* Left column: Returned images from backend */}
         <div className="returned-images-column">
-          <h2>Analysis Results</h2>
-
           {analysisResult && (
             <div style={{
               padding: '15px',
@@ -612,7 +610,6 @@ function App() {
             />
           ) : (
             <>
-              <h2>Live Webcam</h2>
               <div className="video-container">
                 {webcamError ? (
                   <div className="error-message">{webcamError}</div>
@@ -625,46 +622,41 @@ function App() {
                       className="display-video"
                     />
                     {isRecording && <div className="recording-overlay" />}
-                    <div className="webcam-controls">
-                      <button
-                        className="capture-button"
-                        onClick={captureImage}
-                        title="Capture Image"
-                      >
-                        📷 Capture
-                      </button>
-                      <button
-                        className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
-                        onClick={toggleRecording}
-                        title={useTextInput ? 'Text mode is active' : (isRecording ? 'Stop Recording' : 'Start Recording')}
-                        disabled={useTextInput}
-                      >
-                        {isRecording ? '⏹ Stop' : '🎤 Record'}
-                      </button>
-                      <button
-                        className={`input-mode-button ${useTextInput ? 'input-mode-active' : ''}`}
-                        onClick={toggleTextInputMode}
-                        title={useTextInput ? 'Use audio instead' : 'Use text instead of audio'}
-                      >
-                        {useTextInput ? '⌨ Text On' : '⌨ Use Text'}
-                      </button>
-                      <button
-                        className={`diagram-source-button ${diagramSource === 'user' ? 'diagram-source-user' : 'diagram-source-schematic'}`}
-                        onClick={toggleDiagramSource}
-                        title={hasSchematicSources
-                          ? 'Switch edited-image source (user photo vs schematic)'
-                          : 'No schematic source configured. Set VITE_SCHEMATIC_IMAGE_PATHS to enable switching.'}
-                        disabled={!hasSchematicSources}
-                      >
-                        {diagramSource === 'user' ? '🖼 Edit: User' : '📐 Edit: Schematic'}
-                      </button>
-                    </div>
                   </>
                 )}
               </div>
-              <p className="diagram-source-hint">
-                Edited image source: <strong>{diagramSource === 'user' ? 'User photo' : 'Schematic image'}</strong>
-              </p>
+              {!webcamError && (
+                <div className="webcam-controls" role="group" aria-label="Webcam controls">
+                  <button
+                    className="capture-button"
+                    onClick={captureImage}
+                    title="Capture Image"
+                    type="button"
+                  >
+                    <span className="control-icon" aria-hidden="true">📷</span>
+                    <span className="control-label">Capture</span>
+                  </button>
+                  <button
+                    className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
+                    onClick={toggleRecording}
+                    title={useTextInput ? 'Text mode is active' : (isRecording ? 'Stop Recording' : 'Start Recording')}
+                    disabled={useTextInput}
+                    type="button"
+                  >
+                    <span className="control-icon" aria-hidden="true">{isRecording ? '⏹' : '🎤'}</span>
+                    <span className="control-label">{isRecording ? 'Stop' : 'Record'}</span>
+                  </button>
+                  <button
+                    className={`input-mode-button webcam-control-button ${useTextInput ? 'input-mode-active' : ''}`}
+                    onClick={toggleTextInputMode}
+                    title={useTextInput ? 'Use audio instead' : 'Use text instead of audio'}
+                    type="button"
+                  >
+                    <span className="control-icon" aria-hidden="true">⌨</span>
+                    <span className="control-label">Use Text</span>
+                  </button>
+                </div>
+              )}
               {useTextInput && (
                 <div className="text-input-panel">
                   <label htmlFor="manual-input" className="text-input-label">Technician text input</label>
