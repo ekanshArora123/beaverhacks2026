@@ -196,6 +196,84 @@ h2 {
   transform: scale(0.98);
 }
 
+.mic-button:disabled {
+  background: #b0bec5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.mic-button:disabled:hover {
+  background: #b0bec5;
+  box-shadow: none;
+  transform: none;
+}
+
+.input-mode-button {
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.input-mode-button:hover {
+  background: rgba(0, 0, 0, 0.75);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.input-mode-button.input-mode-active {
+  background: #ff9f1a;
+  border-color: #ff9f1a;
+  color: #1f2933;
+}
+
+.text-input-panel {
+  margin-top: 0.6rem;
+  background: #fff7e6;
+  border: 1px solid #ffd6a0;
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.text-input-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #7a3e00;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.manual-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 70px;
+  border: 1px solid #e7b97f;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.92rem;
+  font-family: inherit;
+  color: #2b2b2b;
+  background: #fffdf7;
+  box-sizing: border-box;
+}
+
+.manual-input:focus {
+  outline: none;
+  border-color: #ff9f1a;
+  box-shadow: 0 0 0 2px rgba(255, 159, 26, 0.2);
+}
+
+.text-input-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #8a5a22;
+}
+
 /* When actively recording */
 .mic-button.mic-recording {
   background: #e74c3c;

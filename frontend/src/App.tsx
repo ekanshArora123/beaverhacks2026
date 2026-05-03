@@ -93,6 +93,8 @@ function App() {
 
   const [isRecording, setIsRecording] = useState(false)
   const [hasAudioRecording, setHasAudioRecording] = useState(false)
+  const [useTextInput, setUseTextInput] = useState(false)
+  const [manualTextInput, setManualTextInput] = useState('')
 
   useEffect(() => {
     const enableMediaCapture = async () => {
@@ -174,6 +176,20 @@ function App() {
     setHasAudioRecording(false)
   }
 
+  const toggleTextInputMode = () => {
+    const nextUseTextInput = !useTextInput
+    setUseTextInput(nextUseTextInput)
+
+    if (nextUseTextInput) {
+      if (isRecording && mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
+      setIsRecording(false)
+      audioChunksRef.current = []
+      setHasAudioRecording(false)
+    }
+  }
+
   const buildRollingLoopContext = () => {
     if (loopTranscriptsRef.current.length === 0) {
       return ''
@@ -241,10 +257,17 @@ function App() {
     const rollingLoopContext = buildRollingLoopContext()
     const pendingImageDataUrls = buildPendingImageDataUrls()
     const selectedUserImages = selectUserImagesForRequest(pendingImageDataUrls, rollingLoopContext)
+    const manualUserText = manualTextInput.trim()
+    const hasManualText = useTextInput && manualUserText.length > 0
 
 
     if (selectedUserImages.length === 0) {
       alert('Please capture at least one image first')
+      return
+    }
+
+    if (useTextInput && !hasManualText) {
+      alert('Please enter text before sending, or switch back to audio mode.')
       return
     }
 
@@ -276,13 +299,18 @@ function App() {
         availableUserImageCount: pendingImageDataUrls.length,
         fallbackLimit: USER_IMAGE_FALLBACK_LIMIT,
         schematicCount: SCHEMATIC_IMAGE_PATHS.length,
+        inputMode: useTextInput ? 'text' : 'audio',
 
       })
 
       const hasAudioClip = audioChunksRef.current.length > 0 && recorderFormatRef.current
 
-      if (!hasAudioClip) {
+      if (!hasAudioClip && !hasManualText) {
         formData.append('prompt', DEFAULT_ANALYZE_PROMPT)
+      }
+
+      if (hasManualText) {
+        formData.append('text_source_2', manualUserText)
       }
 
       const rollingLoopContext = buildRollingLoopContext()
@@ -291,7 +319,7 @@ function App() {
       }
 
       // Append accumulated audio if available
-      if (hasAudioClip && recorderFormatRef.current) {
+      if (!hasManualText && hasAudioClip && recorderFormatRef.current) {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderFormatRef.current.mimeType })
         formData.append('audio', audioBlob, `recording.${recorderFormatRef.current.extension}`)
 
@@ -354,6 +382,9 @@ function App() {
       setCapturedImages([])
       audioChunksRef.current = []
       setHasAudioRecording(false)
+      if (useTextInput) {
+        setManualTextInput('')
+      }
     } catch (error) {
       console.error('Error sending to backend:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -362,6 +393,9 @@ function App() {
       setIsSending(false)
     }
   }
+
+  const hasManualText = manualTextInput.trim().length > 0
+  const isSendDisabled = isSending || (useTextInput && !hasManualText)
 
   return (
     <div className="app">
@@ -427,14 +461,36 @@ function App() {
                   <button
                     className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
                     onClick={toggleRecording}
-                    title={isRecording ? 'Stop Recording' : 'Start Recording'}
+                    title={useTextInput ? 'Text mode is active' : (isRecording ? 'Stop Recording' : 'Start Recording')}
+                    disabled={useTextInput}
                   >
                     {isRecording ? '⏹ Stop' : '🎤 Record'}
+                  </button>
+                  <button
+                    className={`input-mode-button ${useTextInput ? 'input-mode-active' : ''}`}
+                    onClick={toggleTextInputMode}
+                    title={useTextInput ? 'Use audio instead' : 'Use text instead of audio'}
+                  >
+                    {useTextInput ? '⌨ Text On' : '⌨ Use Text'}
                   </button>
                 </div>
               </>
             )}
           </div>
+          {useTextInput && (
+            <div className="text-input-panel">
+              <label htmlFor="manual-input" className="text-input-label">Technician text input</label>
+              <textarea
+                id="manual-input"
+                className="manual-input"
+                value={manualTextInput}
+                onChange={(event) => setManualTextInput(event.target.value)}
+                placeholder="Type what the technician would normally say out loud..."
+                rows={3}
+              />
+              <p className="text-input-hint">Text mode sends this message instead of recorded audio.</p>
+            </div>
+          )}
           {/* Audio status indicator below the webcam */}
           {(isRecording || hasAudioRecording) && (
             <div className={`audio-status ${isRecording ? 'audio-status-recording' : 'audio-status-ready'}`}>
@@ -473,9 +529,11 @@ function App() {
             onClick={() => {
               void sendToBackend()
             }}
-            disabled={isSending}
+            disabled={isSendDisabled}
           >
-            {isSending ? 'Sending...' : `Send ${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}${hasAudioRecording ? ' + audio' : ''}`}
+            {isSending
+              ? 'Sending...'
+              : `Send ${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}${useTextInput ? (hasManualText ? ' + text' : '') : (hasAudioRecording ? ' + audio' : '')}`}
           </button>
         </div>
       )}
