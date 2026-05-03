@@ -608,6 +608,14 @@ function App() {
               {!webcamError && (
                 <div className="webcam-controls" role="group" aria-label="Webcam controls">
                   <button
+                    className="webcam-control-button"
+                    onClick={togglePhoneInputMode}
+                    title="Use Android phone as input device"
+                    type="button"
+                  >
+                    <span className="control-label">Use Phone</span>
+                  </button>
+                  <button
                     className="capture-button"
                     onClick={captureImage}
                     title="Capture Image"
@@ -624,12 +632,22 @@ function App() {
                     <span className="control-label">{isRecording ? 'Stop' : 'Record'}</span>
                   </button>
                   <button
-                    className="webcam-control-button"
-                    onClick={togglePhoneInputMode}
-                    title="Use Android phone as input device"
+                    className="send-button send-button-island"
+                    onClick={() => {
+                      void sendToBackend()
+                    }}
+                    disabled={isSendDisabled}
                     type="button"
                   >
-                    <span className="control-label">Use Phone</span>
+                    {isSending
+                      ? 'Sending...'
+                      : (() => {
+                        const parts: string[] = []
+                        if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
+                        if (hasManualText) parts.push('text')
+                        if (hasAudioRecording) parts.push('audio')
+                        return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
+                      })()}
                   </button>
                 </div>
               )}
@@ -655,7 +673,7 @@ function App() {
       {!usePhoneInput && (
         <div className="bottom-bar">
           <div className="thumbnails-section">
-            {capturedImages.length > 0 && (
+            {capturedImages.length > 0 ? (
               <div className="thumbnails-container">
                 {capturedImages.map((img) => (
                   <div key={img.id} className="thumbnail-box">
@@ -670,24 +688,9 @@ function App() {
                   </div>
                 ))}
               </div>
+            ) : (
+              <span className="thumbnails-empty">No photos yet</span>
             )}
-            <button
-              className="send-button"
-              onClick={() => {
-                void sendToBackend()
-              }}
-              disabled={isSendDisabled}
-            >
-              {isSending
-                ? 'Sending...'
-                : (() => {
-                  const parts: string[] = []
-                  if (capturedImages.length > 0) parts.push(`${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`)
-                  if (hasManualText) parts.push('text')
-                  if (hasAudioRecording) parts.push('audio')
-                  return parts.length > 0 ? `Send ${parts.join(' + ')}` : 'Send'
-                })()}
-            </button>
           </div>
           <div className="text-input-panel">
             <textarea
