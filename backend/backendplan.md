@@ -43,14 +43,5 @@ Build the backend prompt flow so the task pipeline is clear and each prompt scri
 - This text is the current thing that still needs to be done for the task.
 - `updatePrompt.py` is responsible for writing updates to this file.
 
-## Status
-
-- `mainPrompt.py`: planned first text-generation step
-- `textToSpeech.py`: text-to-speech step
-- `updatePrompt.py`: task-state `.txt` updater
-- `backend/AIBackend.py`: coordinator for the prompt flow
-
 ## Notes
-
 - Keep task status as readable text, not Python code.
-- Keep the prompt flow simple: text first, then speech, then state update.
