@@ -64,7 +64,6 @@ function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recorderFormatRef = useRef<RecorderFormat | null>(null)
   const loopTranscriptsRef = useRef<string[]>([])
@@ -76,21 +75,10 @@ function App() {
   const [isSending, setIsSending] = useState(false)
 
   const [isRecording, setIsRecording] = useState(false)
-  const [transcription, setTranscription] = useState<string>("")
-  const [shouldSubmit, setShouldSubmit] = useState(false)
-  const [isListeningModeEnabled, setIsListeningModeEnabled] = useState(false)
-  
-  const listeningModeRef = useRef(isListeningModeEnabled)
-  useEffect(() => {
-    listeningModeRef.current = isListeningModeEnabled
-  }, [isListeningModeEnabled])
+  const [hasAudioRecording, setHasAudioRecording] = useState(false)
 
   useEffect(() => {
-    // Request webcam and microphone access
     const enableMediaCapture = async () => {
-      let animationFrameId = 0
-      let audioContext: AudioContext | null = null
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -99,16 +87,14 @@ function App() {
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          videoRef.current.muted = true // Prevent audio feedback from microphone
+          videoRef.current.muted = true
         }
 
         const recorderFormat = resolveRecorderFormat()
         recorderFormatRef.current = recorderFormat
-        
-        // Extract only the audio tracks from the stream to avoid NotSupportedError
-        // when using an audio-only MIME type with a stream that contains video.
+
         const audioStream = new MediaStream(stream.getAudioTracks())
-        
+
         const mediaRecorder = new MediaRecorder(audioStream, {
           mimeType: recorderFormat.mimeType,
         })
@@ -121,147 +107,19 @@ function App() {
         }
 
         mediaRecorder.onstop = () => {
-          if (!listeningModeRef.current) {
-            audioChunksRef.current = [] // discard audio
-            setTranscription("Listening mode paused.")
-            return
+          if (audioChunksRef.current.length > 0) {
+            setHasAudioRecording(true)
           }
-          setTranscription(`Processing voice...`)
-          setShouldSubmit(true)
         }
-
-        // --- Automated Voice Activity Detection (VAD) ---
-        const localAudioContext = new AudioContext()
-        audioContext = localAudioContext
-        audioContextRef.current = localAudioContext
-        const analyser = localAudioContext.createAnalyser()
-        const microphone = localAudioContext.createMediaStreamSource(stream)
-
-        analyser.smoothingTimeConstant = 0.8
-        analyser.fftSize = 1024
-        microphone.connect(analyser)
-
-        let isSpeaking = false
-        let silenceTimer: ReturnType<typeof setTimeout> | null = null
-        const array = new Uint8Array(analyser.frequencyBinCount)
-
-        const checkAudioLevel = () => {
-          analyser.getByteFrequencyData(array)
-
-          let maxVolume = 0
-          
-          // Prevent feedback loops OR user turning off listening mode
-          if (!listeningModeRef.current || window.speechSynthesis.speaking) {
-            maxVolume = 0
-            
-            // If they toggled it off mid-sentence, cancel the recording immediately!
-            if (!listeningModeRef.current && isSpeaking) {
-              isSpeaking = false
-              if (silenceTimer) {
-                clearTimeout(silenceTimer)
-                silenceTimer = null
-              }
-              if (mediaRecorder.state === "recording") {
-                mediaRecorder.stop()
-                setIsRecording(false)
-              }
-            }
-          } else {
-            for (let i = 0; i < array.length; i++) {
-              if (array[i] > maxVolume) {
-                maxVolume = array[i]
-              }
-            }
-          }
-
-          // VOLUME THRESHOLD: Volume ranges from 0 to 255.
-          const THRESHOLD = 30
-
-          if (maxVolume > THRESHOLD) {
-            // User is speaking
-            if (!isSpeaking) {
-              isSpeaking = true
-              if (mediaRecorder.state === "inactive") {
-                // Looping mode sends only the latest clip, not historical audio batches.
-                audioChunksRef.current = []
-                // Ensure audio context is running (browsers suspend it if no user interaction occurred)
-                if (localAudioContext.state === 'suspended') {
-                  void localAudioContext.resume()
-                }
-                mediaRecorder.start()
-                setIsRecording(true)
-                setTranscription("Recording audio...")
-              }
-            }
-            // Clear any pending silence timeout because they are still talking
-            if (silenceTimer) {
-              clearTimeout(silenceTimer)
-              silenceTimer = null
-            }
-          } else {
-            // User is silent
-            if (isSpeaking && !silenceTimer) {
-              // Wait 2 seconds before assuming they finished their sentence
-              silenceTimer = setTimeout(() => {
-                isSpeaking = false
-                if (mediaRecorder.state === "recording") {
-                  mediaRecorder.stop() // Stops recording, accumulates chunks
-                  setIsRecording(false)
-                }
-              }, 2000)
-            }
-          }
-
-          // Debug log - print every 60 frames (~1 second) to diagnose
-          if (animationFrameId % 60 === 0) {
-            console.log('Max Volume:', maxVolume, '| Context State:', localAudioContext.state, '| TTS Speaking:', window.speechSynthesis.speaking)
-          }
-
-          // Loop forever
-          animationFrameId = requestAnimationFrame(checkAudioLevel)
-        }
-
-        // Start the listening loop
-        checkAudioLevel()
-        // ------------------------------------------------
       } catch (error) {
         console.error('Error accessing webcam/microphone:', error)
         setWebcamError('Unable to access webcam/microphone. Please grant permissions.')
       }
-
-      return () => {
-        if (animationFrameId) {
-          cancelAnimationFrame(animationFrameId)
-        }
-        if (audioContext) {
-          void audioContext.close()
-        }
-        if (audioContextRef.current === audioContext) {
-          audioContextRef.current = null
-        }
-      }
     }
 
-    let isCancelled = false
-    let cleanupInternal: (() => void) | undefined
-    
-    void enableMediaCapture().then((cleanupFn) => {
-      if (isCancelled && cleanupFn) {
-        // Component unmounted before we finished setting up! Clean up immediately.
-        cleanupFn()
-      } else {
-        cleanupInternal = cleanupFn
-      }
-    })
+    void enableMediaCapture()
 
-    // Cleanup: stop video and audio streams when component unmounts
     return () => {
-      isCancelled = true
-      
-      if (cleanupInternal) {
-        cleanupInternal()
-      }
-
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream
         stream.getTracks().forEach(track => track.stop())
@@ -273,42 +131,31 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    if (shouldSubmit) {
-      setShouldSubmit(false)
+  const toggleRecording = () => {
+    const recorder = mediaRecorderRef.current
+    if (!recorder) return
 
-      const runAutoSubmit = async () => {
-        let dataUrl = ''
-        
-        // Auto-capture a fresh image right now!
-        if (videoRef.current && canvasRef.current) {
-          const video = videoRef.current
-          const canvas = canvasRef.current
-          const context = canvas.getContext('2d')
-
-          if (context) {
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
-            context.drawImage(video, 0, 0, canvas.width, canvas.height)
-            dataUrl = canvas.toDataURL('image/png')
-            
-            // Show the user what we just automatically captured
-            setCapturedImages((previousImages) => [
-              ...previousImages,
-              { id: Date.now().toString(), dataUrl },
-            ].slice(-LOOP_TRANSCRIPT_HISTORY_LIMIT))
-          }
-        }
-
-        if (dataUrl) {
-          console.log('📸 Auto-captured photo from webcam! Submitting to backend now...')
-          await sendToBackend(dataUrl, true)
-        }
+    if (isRecording) {
+      // Stop recording
+      if (recorder.state === 'recording') {
+        recorder.stop()
       }
-
-      void runAutoSubmit()
+      setIsRecording(false)
+    } else {
+      // Start recording — clear previous audio
+      audioChunksRef.current = []
+      setHasAudioRecording(false)
+      if (recorder.state === 'inactive') {
+        recorder.start()
+      }
+      setIsRecording(true)
     }
-  }, [shouldSubmit])
+  }
+
+  const discardAudio = () => {
+    audioChunksRef.current = []
+    setHasAudioRecording(false)
+  }
 
   const buildRollingLoopContext = () => {
     if (loopTranscriptsRef.current.length === 0) {
@@ -331,17 +178,11 @@ function App() {
 
     if (!context) return
 
-    // Set canvas dimensions to match video
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-
-    // Draw current video frame to canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-    // Convert canvas to data URL
     const dataUrl = canvas.toDataURL('image/png')
 
-    // Add to captured images
     const newImage: CapturedImage = {
       id: Date.now().toString(),
       dataUrl: dataUrl
@@ -354,18 +195,25 @@ function App() {
     setCapturedImages(prev => prev.filter(img => img.id !== id))
   }
 
-  const sendToBackend = async (autoDataUrl?: string, isLoopSubmission = false) => {
-    const urlToUse = autoDataUrl || (capturedImages.length > 0 ? capturedImages[capturedImages.length - 1].dataUrl : null)
+  const sendToBackend = async () => {
+    const urlToUse = capturedImages.length > 0 ? capturedImages[capturedImages.length - 1].dataUrl : null
 
     if (!urlToUse) {
       alert('Please capture at least one image first')
       return
     }
 
+    // If still recording, stop first
+    if (isRecording && mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      // Wait briefly for the onstop handler to fire and collect chunks
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+
     setIsSending(true)
 
     try {
-      // Convert first image dataUrl to blob
       const response = await fetch(urlToUse)
       const imageBlob = await response.blob()
 
@@ -383,21 +231,18 @@ function App() {
         formData.append('prompt', DEFAULT_ANALYZE_PROMPT)
       }
 
-      if (isLoopSubmission) {
-        const rollingLoopContext = buildRollingLoopContext()
-        if (rollingLoopContext) {
-          formData.append('text_source_1', rollingLoopContext)
-        }
+      const rollingLoopContext = buildRollingLoopContext()
+      if (rollingLoopContext) {
+        formData.append('text_source_1', rollingLoopContext)
       }
 
       // Append accumulated audio if available
       if (hasAudioClip && recorderFormatRef.current) {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderFormatRef.current.mimeType })
         formData.append('audio', audioBlob, `recording.${recorderFormatRef.current.extension}`)
-        
-        // Calculate approximate duration (assuming ~128kbps bitrate for webm/ogg)
+
         const approximateDurationSeconds = (audioBlob.size * 8) / (128 * 1024)
-        
+
         console.log('=== AUDIO CLIP INFO ===')
         console.log('Full audio clip size:', audioBlob.size, 'bytes', `(${(audioBlob.size / 1024).toFixed(2)} KB)`)
         console.log('Audio format:', audioBlob.type)
@@ -405,8 +250,7 @@ function App() {
         console.log('Approximate duration:', approximateDurationSeconds.toFixed(2), 'seconds')
         console.log('=======================')
       }
-      
-      // Call backend
+
       const analyzeUrl = buildApiUrl('/analyze')
       console.log('Calling backend at', analyzeUrl)
       const apiResponse = await fetch(analyzeUrl, {
@@ -437,7 +281,7 @@ function App() {
       setAnalysisResult(responseText)
 
       const transcribedUserInput = (result?.user_input_text || '').trim()
-      if (isLoopSubmission && transcribedUserInput) {
+      if (transcribedUserInput) {
         const previousEntries = loopTranscriptsRef.current
         const latestEntry = previousEntries[previousEntries.length - 1]
         if (transcribedUserInput !== latestEntry) {
@@ -446,7 +290,6 @@ function App() {
             transcribedUserInput,
           ].slice(-LOOP_TRANSCRIPT_HISTORY_LIMIT)
         }
-        setTranscription(`Heard: ${transcribedUserInput}`)
       }
 
       // Stop any existing speech and read the new response aloud
@@ -454,13 +297,9 @@ function App() {
       const utterance = new SpeechSynthesisUtterance(responseText)
       window.speechSynthesis.speak(utterance)
 
-      if (!isLoopSubmission) {
-        setCapturedImages([])
-      }
-      audioChunksRef.current = [] // Reset accumulated audio
-      if (!isLoopSubmission) {
-        setTranscription('') // Clear transcription after successful send
-      }
+      setCapturedImages([])
+      audioChunksRef.current = []
+      setHasAudioRecording(false)
     } catch (error) {
       console.error('Error sending to backend:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -471,52 +310,7 @@ function App() {
   }
 
   return (
-    <div
-      className="app"
-      onClick={() => {
-        if (audioContextRef.current?.state === 'suspended') {
-          void audioContextRef.current.resume()
-          console.log('AudioContext resumed by user interaction!')
-        }
-      }}
-    >
-
-      <div className="audio-controls" style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
-        
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
-            <input 
-              type="checkbox" 
-              checked={isListeningModeEnabled} 
-              onChange={(e) => setIsListeningModeEnabled(e.target.checked)}
-              style={{ width: '20px', height: '20px', marginRight: '10px', cursor: 'pointer' }}
-            />
-            <span style={{ fontSize: '1.2em', fontWeight: 'bold' }}>Hands-Free Assistant Mode</span>
-          </label>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px', opacity: isListeningModeEnabled ? 1 : 0.5 }}>
-          <div style={{
-            width: '15px',
-            height: '15px',
-            borderRadius: '50%',
-            backgroundColor: !isListeningModeEnabled ? '#95a5a6' : (isRecording ? '#e74c3c' : '#2ecc71'),
-            marginRight: '10px',
-            animation: isRecording ? 'pulse 1s infinite' : 'none'
-          }} />
-          <strong style={{ fontSize: '1.1em' }}>
-            {!isListeningModeEnabled 
-              ? "⏸️ Microphone Paused (Toggle mode on to speak)" 
-              : (isRecording ? "🎤 Listening to your question..." : "🟢 Microphone Active (Waiting for voice...)")}
-          </strong>
-        </div>
-
-        {transcription && (
-          <div style={{ padding: '15px', backgroundColor: '#2c3e50', color: 'white', borderRadius: '5px', textAlign: 'left' }}>
-            <strong>Audio Status:</strong> {transcription}
-          </div>
-        )}
-      </div>
+    <div className="app">
 
       <div className="main-content">
         {/* Left column: Returned images from backend */}
@@ -555,7 +349,7 @@ function App() {
 
         {/* Right column: Webcam feed */}
         <div className="webcam-column">
-          <h2>Live Webcam {isRecording && <span className="recording-indicator">● REC</span>}</h2>
+          <h2>Live Webcam</h2>
           <div className="video-container">
             {webcamError ? (
               <div className="error-message">{webcamError}</div>
@@ -567,16 +361,39 @@ function App() {
                   playsInline
                   className="display-video"
                 />
-                <button
-                  className="capture-button"
-                  onClick={captureImage}
-                  title="Capture Image"
-                >
-                  📷 Capture
-                </button>
+                {isRecording && <div className="recording-overlay" />}
+                <div className="webcam-controls">
+                  <button
+                    className="capture-button"
+                    onClick={captureImage}
+                    title="Capture Image"
+                  >
+                    📷 Capture
+                  </button>
+                  <button
+                    className={`mic-button ${isRecording ? 'mic-recording' : ''} ${hasAudioRecording ? 'mic-has-audio' : ''}`}
+                    onClick={toggleRecording}
+                    title={isRecording ? 'Stop Recording' : 'Start Recording'}
+                  >
+                    {isRecording ? '⏹ Stop' : '🎤 Record'}
+                  </button>
+                </div>
               </>
             )}
           </div>
+          {/* Audio status indicator below the webcam */}
+          {(isRecording || hasAudioRecording) && (
+            <div className={`audio-status ${isRecording ? 'audio-status-recording' : 'audio-status-ready'}`}>
+              {isRecording ? (
+                <><span className="audio-status-dot recording-dot" /> Recording audio...</>
+              ) : (
+                <>
+                  <span className="audio-status-dot ready-dot" /> Audio recorded — will be sent with images
+                  <button className="discard-audio-btn" onClick={discardAudio} title="Discard audio">✕</button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -604,7 +421,7 @@ function App() {
             }}
             disabled={isSending}
           >
-            {isSending ? 'Sending...' : `Send ${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}`}
+            {isSending ? 'Sending...' : `Send ${capturedImages.length} image${capturedImages.length > 1 ? 's' : ''}${hasAudioRecording ? ' + audio' : ''}`}
           </button>
         </div>
       )}
