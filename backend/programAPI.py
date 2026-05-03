@@ -60,7 +60,7 @@ ANALYZE_MODEL = "gemini-2.0-flash"
 GENERATE_MODEL = "gemini-3-pro-image-preview"
 
 SUPPORTED_SUFFIXES = {
-    ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp3",
     ".mp4", ".mov", ".avi", ".mkv", ".webm",
 }
 SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
