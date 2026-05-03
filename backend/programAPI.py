@@ -52,6 +52,11 @@ try:
 except ImportError:
     import sessionStore
 
+try:
+    from .ApiScripts.docTools import list_machine_folders as _list_machine_folders
+except ImportError:
+    from ApiScripts.docTools import list_machine_folders as _list_machine_folders
+
 
 app = Flask(__name__)
 CORS(app)
@@ -725,6 +730,15 @@ def _normalize_session_code(code: str) -> str:
     return (code or "").strip().upper()
 
 
+@app.route("/machine-folders", methods=["GET"])
+def machine_folders():
+    """Return the list of machine documentation folder names."""
+    try:
+        return jsonify({"folders": _list_machine_folders()})
+    except Exception as exc:
+        return _json_error_response(exc)
+
+
 @app.route("/session/<code>/input", methods=["POST"])
 def session_input(code: str):
     code = _normalize_session_code(code)
@@ -752,6 +766,7 @@ def session_input(code: str):
 
         text_value = _optional_str(request.form.get("text_source_2") or request.form.get("text"))
         diagram_source = _optional_str(request.form.get("diagram_source"))
+        tool_context = _optional_str(request.form.get("tool_context"))
 
         if not image_data_urls and not audio_data_url and not text_value:
             return jsonify({"error": "Phone payload must include at least one image, audio, or text"}), 400
@@ -763,6 +778,7 @@ def session_input(code: str):
             "audio_extension": audio_extension,
             "text_source_2": text_value,
             "diagram_source": diagram_source,
+            "tool_context": tool_context,
             "received_at": time.time(),
         }
 
