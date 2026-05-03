@@ -214,6 +214,14 @@ def voice_to_text():
         finally:
             tmp_path.unlink(missing_ok=True)
 
+        try:
+            context_dir = Path(__file__).resolve().parent.parent / "taskContext"
+            context_dir.mkdir(parents=True, exist_ok=True)
+            output_file = context_dir / "latest_audio_transcription.txt"
+            output_file.write_text(transcript_text, encoding="utf-8")
+        except Exception as e:
+            print(f"Warning: Failed to save transcription to file: {e}")
+
         return jsonify(
             {
                 "text": transcript_text,
