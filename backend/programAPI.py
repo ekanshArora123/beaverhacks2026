@@ -378,19 +378,26 @@ def analyze():
             else:
                 diagram_image_paths = user_uploaded_paths or all_image_paths
 
-            second_result = backend.run_second_prompt(
-                first_prompt_response=str(first_result.get("response_text") or ""),
-                task_name=task_name,
-                text_source_1=text_source_1,
-                text_source_2=text_source_2,
-                image_paths=diagram_image_paths,
-                mode="text",
-                prompt_text=None,
-                text_model=model_overrides["text_model"],
-                vision_model=model_overrides["vision_model"],
-                voice_model=model_overrides["voice_model"],
-                diagram_source=diagram_source,
-            )
+            # Skip diagram generation when no images are available — the
+            # vision model needs at least one image to produce an annotated
+            # diagram.  Text/audio-only submissions still get the first
+            # prompt response.
+            if diagram_image_paths:
+                second_result = backend.run_second_prompt(
+                    first_prompt_response=str(first_result.get("response_text") or ""),
+                    task_name=task_name,
+                    text_source_1=text_source_1,
+                    text_source_2=text_source_2,
+                    image_paths=diagram_image_paths,
+                    mode="text",
+                    prompt_text=None,
+                    text_model=model_overrides["text_model"],
+                    vision_model=model_overrides["vision_model"],
+                    voice_model=model_overrides["voice_model"],
+                    diagram_source=diagram_source,
+                )
+            else:
+                second_result = {}
 
         serialized_first = _attach_binary_payload(first_result)
         serialized_second = _attach_binary_payload(second_result)
