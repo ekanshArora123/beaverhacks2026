@@ -346,6 +346,7 @@ def analyze():
         if isinstance(serialized, dict):
             serialized["text"] = serialized.get("response_text") or ""
             serialized["model"] = serialized.get("selected_model") or serialized.get("text_model")
+            serialized["user_input_text"] = text_source_2
         return jsonify(serialized)
     except Exception as exc:
         return _json_error_response(exc)
