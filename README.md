@@ -179,6 +179,9 @@ cd backend
 python -m pytest tests/ -v
 ```
 
+## Known Bugs
+The system does not wait for explicit cacheing, the program can miss and crash  
+
 ## Documentation
 
 See the [`documentation/`](documentation/) folder for detailed feature docs:
