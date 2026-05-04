@@ -5,7 +5,7 @@
 An AI-powered field-service technician support tool built for BeaverHacks 2026. The system provides real-time guidance to machinery technicians through a multimodal interface combining image analysis, voice interaction, annotated diagrams, and local documentation retrieval — all powered by Google Gemini.
 
 ## Project Context (WARNING)
-This project was built in 24 hours, it has several known, and probably many unknowm bugs
+This project was built in 24 hours, it has several known, and likely many unknown bugs.
 
 ## Overview
 
